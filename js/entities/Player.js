@@ -9,9 +9,9 @@ class Player {
         this.isMoving = false;
         this.moveDirection = 0; // -1 = left, 1 = right, 0 = stop
 
-        // Create sprite
-        this.sprite = scene.physics.add.sprite(x, y, 'monk_idle');
-        this.sprite.setScale(1.2); // Increased scale for better visibility
+        // Create sprite (use first idle frame)
+        this.sprite = scene.physics.add.sprite(x, y, 'monk_idle_1');
+        this.sprite.setScale(1.2); // adjust if needed
         this.sprite.setCollideWorldBounds(true);
 
         // Create animations
@@ -24,52 +24,63 @@ class Player {
     createAnimations() {
         const scene = this.scene;
 
-        // Idle animation
+        // Idle animation (4 frames)
         if (!scene.anims.exists('monk_idle_anim')) {
             scene.anims.create({
                 key: 'monk_idle_anim',
-                frames: scene.anims.generateFrameNumbers('monk_idle', { start: 0, end: 7 }),
+                frames: [
+                    { key: 'monk_idle_1' },
+                    { key: 'monk_idle_2' },
+                    { key: 'monk_idle_3' },
+                    { key: 'monk_idle_4' }
+                ],
                 frameRate: 10,
                 repeat: -1
             });
         }
 
-        // Punch animation
+        // Punch animation (6 frames)
         if (!scene.anims.exists('monk_punch_anim')) {
             scene.anims.create({
                 key: 'monk_punch_anim',
-                frames: scene.anims.generateFrameNumbers('monk_punch', { start: 0, end: 6 }),
+                frames: [
+                    { key: 'monk_punch_1' },
+                    { key: 'monk_punch_2' },
+                    { key: 'monk_punch_3' },
+                    { key: 'monk_punch_4' },
+                    { key: 'monk_punch_5' },
+                    { key: 'monk_punch_6' }
+                ],
                 frameRate: 15,
                 repeat: 0
             });
         }
 
-        // Kick animation
+        // Kick animation (5 frames)
         if (!scene.anims.exists('monk_kick_anim')) {
             scene.anims.create({
                 key: 'monk_kick_anim',
-                frames: scene.anims.generateFrameNumbers('monk_kick', { start: 0, end: 7 }),
+                frames: [
+                    { key: 'monk_kick_1' },
+                    { key: 'monk_kick_2' },
+                    { key: 'monk_kick_3' },
+                    { key: 'monk_kick_4' },
+                    { key: 'monk_kick_5' }
+                ],
                 frameRate: 15,
                 repeat: 0
             });
         }
 
-        // Special attack animation (9 frames)
-        if (!scene.anims.exists('monk_special_anim')) {
+        // Hit animation (2 frames)
+        if (!scene.anims.exists('monk_hit_anim')) {
             scene.anims.create({
-                key: 'monk_special_anim',
-                frames: scene.anims.generateFrameNumbers('monk_special', { start: 0, end: 8 }),
-                frameRate: 15,
-                repeat: 0
-            });
-        }
-
-        // Death animation
-        if (!scene.anims.exists('monk_dead_anim')) {
-            scene.anims.create({
-                key: 'monk_dead_anim',
-                frames: scene.anims.generateFrameNumbers('monk_dead', { start: 0, end: 3 }),
-                frameRate: 8,
+                key: 'monk_hit_anim',
+                frames: [
+                    { key: 'monk_hit_1' },
+                    { key: 'monk_hit_2' }
+                ],
+                frameRate: 12,
                 repeat: 0
             });
         }
@@ -130,22 +141,7 @@ class Player {
         this.checkAttackHit(this.damage * 1.5);
     }
 
-    special() {
-        if (this.isAttacking || this.hp <= 0) return;
-        
-        this.isAttacking = true;
-        this.sprite.play('monk_special_anim');
-        
-        this.sprite.once('animationcomplete', () => {
-            this.isAttacking = false;
-            if (this.hp > 0) {
-                this.sprite.play('monk_idle_anim');
-            }
-        });
-
-        // Check for hit (special does most damage)
-        this.checkAttackHit(this.damage * 2);
-    }
+    // No special move in the new frame set (yet)
 
     checkAttackHit(damage) {
         const enemy = this.scene.enemy;
@@ -167,14 +163,15 @@ class Player {
         
         this.hp = Math.max(0, this.hp - amount);
 
-        // Flash effect
-        this.scene.tweens.add({
-            targets: this.sprite,
-            alpha: 0.5,
-            duration: 100,
-            yoyo: true,
-            repeat: 2
-        });
+        // Play hit anim if not attacking
+        if (!this.isAttacking && this.hp > 0) {
+            this.isAttacking = true;
+            this.sprite.play('monk_hit_anim');
+            this.sprite.once('animationcomplete', () => {
+                this.isAttacking = false;
+                if (this.hp > 0) this.sprite.play('monk_idle_anim');
+            });
+        }
 
         // Check if dead
         if (this.hp <= 0) {
@@ -184,7 +181,13 @@ class Player {
 
     die() {
         this.isAttacking = true; // Prevent further actions
-        this.sprite.play('monk_dead_anim');
+        // No death animation yet in new set: just fade out
+        this.scene.tweens.add({
+            targets: this.sprite,
+            alpha: 0,
+            duration: 800,
+            ease: 'Power2'
+        });
     }
 
     update() {
