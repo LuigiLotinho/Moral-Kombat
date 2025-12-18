@@ -7,37 +7,22 @@ class GameScene extends Phaser.Scene {
         // Background
         this.load.image('background', 'assets/backgrounds/matrimandir background.png');
 
-        // Monk (Player) Spritesheets - All 1080x720, 4x2 grid (8 frames)
-        this.load.spritesheet('monk_idle', 'assets/fighters/monk/monk idle spritesheet.png', {
-            frameWidth: 270,
-            frameHeight: 360
-        });
-        this.load.spritesheet('monk_punch', 'assets/fighters/monk/monk punch spritesheet.png', {
-            frameWidth: 270,
-            frameHeight: 360
-        });
-        this.load.spritesheet('monk_kick', 'assets/fighters/monk/monk kick spritesheet.png', {
-            frameWidth: 270,
-            frameHeight: 360
-        });
-        this.load.spritesheet('monk_dead', 'assets/fighters/monk/monk dead spritsheet.png', {
-            frameWidth: 270,
-            frameHeight: 360
-        });
-        this.load.spritesheet('monk_special', 'assets/fighters/monk/monk special book attack 9 frames spritesheet.png', {
-            frameWidth: 360,
-            frameHeight: 240
-        });
+        // Monk (Player) - NEW individual frames from gimp1
+        for (let i = 1; i <= 4; i++) {
+            this.load.image(`monk_idle_${i}`, `assets/fighters/monk/idle/idel${i}.png`);
+        }
+        for (let i = 1; i <= 6; i++) {
+            this.load.image(`monk_punch_${i}`, `assets/fighters/monk/punch/punch${i}.png`);
+        }
+        for (let i = 1; i <= 5; i++) {
+            this.load.image(`monk_kick_${i}`, `assets/fighters/monk/kick/kick${i}.png`);
+        }
+        for (let i = 1; i <= 2; i++) {
+            this.load.image(`monk_hit_${i}`, `assets/fighters/monk/hit/hit${i}.png`);
+        }
 
-        // Bagger (Enemy) Spritesheets - 1080x720
-        this.load.spritesheet('bagger_idle', 'assets/fighters/bagger/bagger idel spreed sheet.png', {
-            frameWidth: 1080,
-            frameHeight: 720
-        });
-        this.load.spritesheet('bagger_attack', 'assets/fighters/bagger/bagger hit spreet sheet (1).png', {
-            frameWidth: 270,
-            frameHeight: 240
-        });
+        // Bagger (Enemy) - ONLY idle stays
+        this.load.image('bagger_idle', 'assets/fighters/bagger/bagger idel spreed sheet.png');
     }
 
     create() {
@@ -117,7 +102,7 @@ class GameScene extends Phaser.Scene {
         // Attack Controls (Right side)
         const punchBtn = this.createButton(width - padding - buttonSize * 2.5, height - padding - buttonSize, 'P', 0xff4444);
         const kickBtn = this.createButton(width - padding - buttonSize, height - padding - buttonSize, 'K', 0xff8844);
-        const specialBtn = this.createButton(width - padding - buttonSize * 1.75, height - padding - buttonSize * 2.2, 'S', 0xffaa44);
+        // No special button in the new move set
 
         // Button Events
         leftBtn.on('pointerdown', () => this.player.moveLeft());
@@ -128,14 +113,12 @@ class GameScene extends Phaser.Scene {
 
         punchBtn.on('pointerdown', () => this.player.punch());
         kickBtn.on('pointerdown', () => this.player.kick());
-        specialBtn.on('pointerdown', () => this.player.special());
 
         // Keyboard controls (for desktop testing)
         this.cursors = this.input.keyboard.createCursorKeys();
         this.keys = {
             punch: this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.A),
-            kick: this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.S),
-            special: this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.D)
+            kick: this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.S)
         };
     }
 
@@ -183,9 +166,6 @@ class GameScene extends Phaser.Scene {
             }
             if (Phaser.Input.Keyboard.JustDown(this.keys.kick)) {
                 this.player.kick();
-            }
-            if (Phaser.Input.Keyboard.JustDown(this.keys.special)) {
-                this.player.special();
             }
         }
 
