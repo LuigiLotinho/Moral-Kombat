@@ -10,11 +10,17 @@ class Enemy {
 
         // Create sprite
         this.sprite = scene.physics.add.sprite(x, y, 'bagger_idle');
-        this.sprite.setScale(1.5); // Bigger excavator (as per GDD)
+        // Make excavator 2x bigger than before (was 1.5)
+        this.sprite.setScale(3.0);
         this.sprite.setFlipX(true); // Default: face left toward player
         this.sprite.setOrigin(0.5, 1); // feet on ground
         this.sprite.y = y; // bottom anchored
         this.sprite.setCollideWorldBounds(true);
+
+        // Lock a constant display size so frames never "grow/shrink" due to different cropping
+        this.baseDisplayWidth = this.sprite.displayWidth;
+        this.baseDisplayHeight = this.sprite.displayHeight;
+        this.sprite.setDisplaySize(this.baseDisplayWidth, this.baseDisplayHeight);
 
         this.createAnimations();
         this.playIdle();
@@ -42,10 +48,14 @@ class Enemy {
     playIdle() {
         // Single-frame idle
         this.sprite.setTexture('bagger_idle');
+        this.sprite.setDisplaySize(this.baseDisplayWidth, this.baseDisplayHeight);
     }
 
     update(player) {
         if (this.hp <= 0 || !this.canAttack) return;
+
+        // Enforce constant size (prevents any per-frame drift)
+        this.sprite.setDisplaySize(this.baseDisplayWidth, this.baseDisplayHeight);
 
         // cooldown
         if (this.attackCooldown > 0) {
@@ -75,12 +85,8 @@ class Enemy {
         this.isAttacking = true;
         this.attackCooldown = this.attackCooldownTime;
 
-        // Keep a constant display size so frames don't "pop" if cropped differently
-        const targetW = this.sprite.displayWidth;
-        const targetH = this.sprite.displayHeight;
-
         this.sprite.play('bagger_attack_anim');
-        this.sprite.setDisplaySize(targetW, targetH);
+        this.sprite.setDisplaySize(this.baseDisplayWidth, this.baseDisplayHeight);
 
         // Damage roughly mid-swing
         this.scene.time.delayedCall(600, () => {
