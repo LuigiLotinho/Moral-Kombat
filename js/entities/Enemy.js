@@ -3,19 +3,100 @@ class Enemy {
         this.scene = scene;
         this.hp = 150;
         this.maxHp = 150;
+        this.damage = 15;
+        this.isAttacking = false;
+        this.attackCooldown = 0;
+        this.attackCooldownTime = 2200;
 
         // Create sprite
         this.sprite = scene.physics.add.sprite(x, y, 'bagger_idle');
-        this.sprite.setScale(1.5); // Bigger excavator (as per GDD)
-        this.sprite.setFlipX(false); // Face left towards player (changed to false)
+        this.sprite.setScale(3.0); // 2x bigger than before (was 1.5)
+        this.sprite.setFlipX(true); // Default: face left toward player
+        this.sprite.setOrigin(0.5, 1); // feet on ground
+        this.sprite.y = y; // bottom anchored
         this.sprite.setCollideWorldBounds(true);
 
-        // No attack animations for now (only idle asset kept)
+        // Lock a constant display size so frames never "grow/shrink" due to different cropping
+        this.baseDisplayWidth = this.sprite.displayWidth;
+        this.baseDisplayHeight = this.sprite.displayHeight;
+        this.sprite.setDisplaySize(this.baseDisplayWidth, this.baseDisplayHeight);
+
+        this.createAnimations();
+        this.playIdle();
+
+        // AI settings
+        this.attackRange = 520;
+        this.moveSpeed = 2.5; // slow
+        this.canAttack = false;
+        scene.time.delayedCall(800, () => (this.canAttack = true));
+    }
+
+    createAnimations() {
+        const scene = this.scene;
+
+        if (!scene.anims.exists('bagger_attack_anim')) {
+            scene.anims.create({
+                key: 'bagger_attack_anim',
+                frames: Array.from({ length: 12 }, (_, idx) => ({ key: `bagger_attack_${idx + 1}` })),
+                frameRate: 10,
+                repeat: 0
+            });
+        }
+    }
+
+    playIdle() {
+        // Single-frame idle
+        this.sprite.setTexture('bagger_idle');
+        this.sprite.setDisplaySize(this.baseDisplayWidth, this.baseDisplayHeight);
     }
 
     update(player) {
-        // No AI/attacks yet
-        return;
+        if (this.hp <= 0 || !this.canAttack) return;
+
+        // Enforce constant size (prevents any per-frame drift)
+        this.sprite.setDisplaySize(this.baseDisplayWidth, this.baseDisplayHeight);
+
+        // cooldown
+        if (this.attackCooldown > 0) {
+            this.attackCooldown -= this.scene.game.loop.delta;
+        }
+
+        // face player
+        const faceLeft = this.sprite.x > player.sprite.x;
+        this.sprite.setFlipX(!faceLeft); // if player on left, face left; our asset likely faces right
+
+        const distance = Phaser.Math.Distance.Between(this.sprite.x, this.sprite.y, player.sprite.x, player.sprite.y);
+
+        if (this.isAttacking) return;
+
+        if (distance > this.attackRange) {
+            // move slowly toward player
+            if (this.sprite.x > player.sprite.x) this.sprite.x -= this.moveSpeed;
+            else this.sprite.x += this.moveSpeed;
+        } else if (this.attackCooldown <= 0) {
+            this.attack(player);
+        }
+    }
+
+    attack(player) {
+        if (this.isAttacking || this.hp <= 0) return;
+
+        this.isAttacking = true;
+        this.attackCooldown = this.attackCooldownTime;
+
+        this.sprite.play('bagger_attack_anim');
+        this.sprite.setDisplaySize(this.baseDisplayWidth, this.baseDisplayHeight);
+
+        // Damage roughly mid-swing
+        this.scene.time.delayedCall(600, () => {
+            const distance = Phaser.Math.Distance.Between(this.sprite.x, this.sprite.y, player.sprite.x, player.sprite.y);
+            if (distance <= this.attackRange) player.takeDamage(this.damage);
+        });
+
+        this.sprite.once('animationcomplete', () => {
+            this.isAttacking = false;
+            this.playIdle();
+        });
     }
 
     takeDamage(amount) {
