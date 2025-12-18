@@ -21,8 +21,11 @@ class GameScene extends Phaser.Scene {
             this.load.image(`monk_hit_${i}`, `assets/fighters/monk/hit/hit${i}.png`);
         }
 
-        // Bagger (Enemy) - ONLY idle stays
-        this.load.image('bagger_idle', 'assets/fighters/bagger/bagger idel spreed sheet.png');
+        // Bagger (Enemy) - NEW idle + 12-frame attack
+        this.load.image('bagger_idle', 'assets/fighters/bagger/idle/baggeridle.png');
+        for (let i = 1; i <= 12; i++) {
+            this.load.image(`bagger_attack_${i}`, `assets/fighters/bagger/attack/baggerhit${i}.png`);
+        }
     }
 
     create() {
