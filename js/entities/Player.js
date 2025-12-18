@@ -11,7 +11,10 @@ class Player {
 
         // Create sprite (use first idle frame)
         this.sprite = scene.physics.add.sprite(x, y, 'monk_idle_1');
-        this.sprite.setScale(1.2); // adjust if needed
+        this.sprite.setScale(2.0);
+        // Anchor to feet and lift slightly so he stands higher in the frame
+        this.sprite.setOrigin(0.5, 1);
+        this.sprite.y = y - 30;
         this.sprite.setCollideWorldBounds(true);
 
         // Create animations
