@@ -95,24 +95,55 @@ class GameScene extends Phaser.Scene {
 
     createTouchControls() {
         const { width, height } = this.cameras.main;
-        const buttonSize = 120;
+        const buttonSize = 200;
         const padding = 40;
+        // Keep buttons reachable on phones (browser bar / safe-area)
+        const safeBottom = 80;
+
+        // Track touch movement so keyboard logic doesn't cancel it each frame
+        this.touchMoveDirection = 0; // -1 left, +1 right, 0 none
 
         // Movement Controls (Left side)
-        const leftBtn = this.createButton(padding + buttonSize, height - padding - buttonSize, '◄', 0x444444);
-        const rightBtn = this.createButton(padding + buttonSize * 2.5, height - padding - buttonSize, '►', 0x444444);
+        const leftBtn = this.createButton(padding + buttonSize, height - safeBottom - padding - buttonSize, '◄', 0x444444, buttonSize / 2);
+        const rightBtn = this.createButton(padding + buttonSize * 2.5, height - safeBottom - padding - buttonSize, '►', 0x444444, buttonSize / 2);
 
         // Attack Controls (Right side)
-        const punchBtn = this.createButton(width - padding - buttonSize * 2.5, height - padding - buttonSize, 'P', 0xff4444);
-        const kickBtn = this.createButton(width - padding - buttonSize, height - padding - buttonSize, 'K', 0xff8844);
+        const punchBtn = this.createButton(width - padding - buttonSize * 2.5, height - safeBottom - padding - buttonSize, 'P', 0xff4444, buttonSize / 2);
+        const kickBtn = this.createButton(width - padding - buttonSize, height - safeBottom - padding - buttonSize, 'K', 0xff8844, buttonSize / 2);
         // No special button in the new move set
 
-        // Button Events
-        leftBtn.on('pointerdown', () => this.player.moveLeft());
-        leftBtn.on('pointerup', () => this.player.stopMove());
+        // Button Events (mobile-safe: stop on up/out + global up)
+        leftBtn.on('pointerdown', () => {
+            this.touchMoveDirection = -1;
+            this.player.moveLeft();
+        });
+        leftBtn.on('pointerup', () => {
+            this.touchMoveDirection = 0;
+            this.player.stopMove();
+        });
+        leftBtn.on('pointerout', () => {
+            this.touchMoveDirection = 0;
+            this.player.stopMove();
+        });
         
-        rightBtn.on('pointerdown', () => this.player.moveRight());
-        rightBtn.on('pointerup', () => this.player.stopMove());
+        rightBtn.on('pointerdown', () => {
+            this.touchMoveDirection = 1;
+            this.player.moveRight();
+        });
+        rightBtn.on('pointerup', () => {
+            this.touchMoveDirection = 0;
+            this.player.stopMove();
+        });
+        rightBtn.on('pointerout', () => {
+            this.touchMoveDirection = 0;
+            this.player.stopMove();
+        });
+
+        // If finger releases anywhere, stop movement (prevents "stuck" or missed pointerup)
+        this.input.on('pointerup', () => {
+            this.touchMoveDirection = 0;
+            this.player.stopMove();
+        });
 
         punchBtn.on('pointerdown', () => this.player.punch());
         kickBtn.on('pointerdown', () => this.player.kick());
@@ -125,13 +156,13 @@ class GameScene extends Phaser.Scene {
         };
     }
 
-    createButton(x, y, text, color) {
-        const button = this.add.circle(x, y, 60, color, 0.6);
+    createButton(x, y, text, color, radius = 60) {
+        const button = this.add.circle(x, y, radius, color, 0.6);
         button.setInteractive();
         button.setStrokeStyle(4, 0xffffff, 0.8);
 
         const label = this.add.text(x, y, text, {
-            fontSize: '48px',
+            fontSize: radius >= 80 ? '56px' : '48px',
             fontFamily: 'Arial',
             color: '#ffffff',
             fontStyle: 'bold'
@@ -155,13 +186,19 @@ class GameScene extends Phaser.Scene {
         if (this.player.hp > 0) {
             this.player.update();
 
-            // Keyboard controls
-            if (this.cursors.left.isDown) {
-                this.player.moveLeft();
-            } else if (this.cursors.right.isDown) {
-                this.player.moveRight();
+            // Movement: Touch has priority. Keyboard only overrides when pressed.
+            if (this.touchMoveDirection !== 0) {
+                if (this.touchMoveDirection < 0) this.player.moveLeft();
+                else this.player.moveRight();
             } else {
-                this.player.stopMove();
+                // Keyboard controls (desktop)
+                if (this.cursors.left.isDown) {
+                    this.player.moveLeft();
+                } else if (this.cursors.right.isDown) {
+                    this.player.moveRight();
+                } else {
+                    this.player.stopMove();
+                }
             }
 
             if (Phaser.Input.Keyboard.JustDown(this.keys.punch)) {
