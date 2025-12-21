@@ -5,6 +5,11 @@ class Player {
         this.maxHp = 100;
         this.damage = 10;
         this.isAttacking = false;
+        this.isDead = false;
+        this.isCelebrating = false;
+        this.celebrationScaleFactor = 1.3;
+        this.victoryX = null;
+        this.victoryY = null;
         this.movementSpeed = 5;
         this.isMoving = false;
         this.moveDirection = 0; // -1 = left, 1 = right, 0 = stop
@@ -17,11 +22,34 @@ class Player {
         this.sprite.y = y - 30;
         this.sprite.setCollideWorldBounds(true);
 
+        // Lock a constant display size so frames never "grow/shrink" due to different cropping
+        this.baseDisplayWidth = this.sprite.displayWidth;
+        this.baseDisplayHeight = this.sprite.displayHeight;
+        this.lockDisplaySize();
+        // Keep size locked even while animations play (including after death when Player.update() isn't called)
+        this.sprite.on('animationupdate', () => {
+            this.lockDisplaySize();
+            this.lockVictoryPosition();
+        });
+
         // Create animations
         this.createAnimations();
 
         // Play idle animation
         this.sprite.play('monk_idle_anim');
+    }
+
+    lockDisplaySize() {
+        if (!this.sprite) return;
+        const factor = this.isCelebrating ? this.celebrationScaleFactor : 1;
+        this.sprite.setDisplaySize(this.baseDisplayWidth * factor, this.baseDisplayHeight * factor);
+    }
+
+    lockVictoryPosition() {
+        if (!this.isCelebrating) return;
+        if (this.victoryX == null || this.victoryY == null) return;
+        this.sprite.x = this.victoryX;
+        this.sprite.y = this.victoryY;
     }
 
     createAnimations() {
@@ -84,6 +112,42 @@ class Player {
                     { key: 'monk_hit_2' }
                 ],
                 frameRate: 12,
+                repeat: 0
+            });
+        }
+
+        // Defeat animation (4 frames) -> then switch to a static dead pose
+        if (!scene.anims.exists('monk_dying_anim')) {
+            scene.anims.create({
+                key: 'monk_dying_anim',
+                frames: [
+                    { key: 'monk_dying_1' },
+                    { key: 'monk_dying_2' },
+                    { key: 'monk_dying_3' },
+                    { key: 'monk_dying_4' }
+                ],
+                frameRate: 8,
+                repeat: 0
+            });
+        }
+
+        // Victory / celebration animation (frames may be missing; only include existing textures)
+        if (!scene.anims.exists('monk_victory_anim')) {
+            const rawFrames = [];
+            // Skip the first 9 frames (use 10..36 only)
+            for (let i = 10; i <= 36; i++) {
+                const key = `monk_victory_${i}`;
+                if (scene.textures.exists(key)) rawFrames.push(key);
+            }
+            // Fallback: if nothing loaded, reuse idle
+            if (rawFrames.length === 0) rawFrames.push('monk_idle_1');
+
+            const frames = rawFrames.map((key) => ({ key }));
+
+            scene.anims.create({
+                key: 'monk_victory_anim',
+                frames,
+                frameRate: 10,
                 repeat: 0
             });
         }
@@ -162,7 +226,7 @@ class Player {
     }
 
     takeDamage(amount) {
-        if (this.hp <= 0) return;
+        if (this.hp <= 0 || this.isDead) return;
         
         this.hp = Math.max(0, this.hp - amount);
 
@@ -183,19 +247,51 @@ class Player {
     }
 
     die() {
+        if (this.isDead) return;
+        this.isDead = true;
         this.isAttacking = true; // Prevent further actions
-        // No death animation yet in new set: just fade out
-        this.scene.tweens.add({
-            targets: this.sprite,
-            alpha: 0,
-            duration: 800,
-            ease: 'Power2'
+        this.isMoving = false;
+        this.moveDirection = 0;
+        this.sprite.setVelocity?.(0, 0);
+
+        // Play 4-frame dying animation, then stay on dead pose permanently
+        this.lockDisplaySize();
+        this.sprite.play('monk_dying_anim');
+        this.sprite.once('animationcomplete', () => {
+            this.sprite.setTexture('monk_defeat');
+            this.lockDisplaySize();
+        });
+    }
+
+    celebrateVictory() {
+        if (this.hp <= 0 || this.isDead || this.isCelebrating) return;
+        this.isCelebrating = true;
+        this.isAttacking = true;
+        this.isMoving = false;
+        this.moveDirection = 0;
+        this.sprite.setVelocity?.(0, 0);
+        // Freeze at the exact win position
+        this.victoryX = this.sprite.x;
+        this.victoryY = this.sprite.y;
+        if (this.sprite.body) {
+            this.sprite.body.setVelocity?.(0, 0);
+            this.sprite.body.moves = false;
+        }
+        this.lockDisplaySize();
+        this.lockVictoryPosition();
+
+        // Play once, then hold on the meditation frame until the next game starts
+        this.sprite.play('monk_victory_anim');
+        this.sprite.once('animationcomplete', () => {
+            this.sprite.setTexture('monk_victory_36'); // meditation/end pose (new set)
+            this.lockDisplaySize();
+            this.lockVictoryPosition();
         });
     }
 
     update() {
         // Movement
-        if (this.isMoving && !this.isAttacking && this.hp > 0) {
+        if (this.isMoving && !this.isAttacking && this.hp > 0 && !this.isDead && !this.isCelebrating) {
             this.sprite.x += this.moveDirection * this.movementSpeed;
             
             // Keep in bounds
@@ -204,11 +300,14 @@ class Player {
         }
 
         // Play idle if not attacking and not dead
-        if (!this.isAttacking && !this.isMoving && this.hp > 0) {
+        if (!this.isAttacking && !this.isMoving && this.hp > 0 && !this.isDead && !this.isCelebrating) {
             if (this.sprite.anims.currentAnim?.key !== 'monk_idle_anim') {
                 this.sprite.play('monk_idle_anim');
             }
         }
+
+        // Ensure victory stays locked even after animation completes
+        this.lockVictoryPosition();
     }
 }
 
