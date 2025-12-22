@@ -1,8 +1,8 @@
 class Enemy {
     constructor(scene, x, y) {
         this.scene = scene;
-        this.hp = 150;
-        this.maxHp = 150;
+        this.hp = 300;
+        this.maxHp = 300;
         this.damage = 15;
         this.isAttacking = false;
         this.isDead = false;

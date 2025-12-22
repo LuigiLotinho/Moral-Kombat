@@ -3,6 +3,11 @@ class GameScene extends Phaser.Scene {
         super({ key: 'GameScene' });
     }
 
+    init(data) {
+        // opponentKey comes from OpponentSelectScene
+        this.opponentKey = data?.opponentKey || this.opponentKey || 'bagger';
+    }
+
     /**
      * Removes pure/near-black backgrounds by keying out black pixels (sets alpha to 0).
      * Useful when PNGs were exported without transparency and have a black background.
@@ -211,11 +216,23 @@ class GameScene extends Phaser.Scene {
 
         // Book sprite (key out black bg)
         this.makeBlackTransparent('book', 10);
+
+        // Madame (idle/hit/defeat/end)
+        for (let i = 1; i <= 4; i++) this.makeBlackTransparent(`madame_idle_${i}`);
+        for (let i = 1; i <= 9; i++) this.makeBlackTransparent(`madame_hit_${i}`);
+        for (let i = 1; i <= 5; i++) this.makeBlackTransparent(`madame_defeat_${i}`);
+        this.makeBlackTransparent('madame_end');
+
+        // Stabilize Madame frames (prevents wobble from transparent padding)
+        this.padTexturesByOpaqueBottom(Array.from({ length: 4 }, (_, idx) => `madame_idle_${idx + 1}`));
+        this.padTexturesByOpaqueBottom(Array.from({ length: 9 }, (_, idx) => `madame_hit_${idx + 1}`));
+        this.padTexturesByOpaqueBottom(Array.from({ length: 5 }, (_, idx) => `madame_defeat_${idx + 1}`));
     }
 
     preload() {
         // Background
         this.load.image('background', 'assets/backgrounds/matrimandir background.png');
+        this.load.image('background2', 'assets/backgrounds/background 2.png');
 
         // Monk (Player) - NEW individual frames from gimp1
         for (let i = 1; i <= 4; i++) {
@@ -267,6 +284,18 @@ class GameScene extends Phaser.Scene {
         for (let i = 1; i <= 3; i++) {
             this.load.image(`bagger_defeat_loop_${i}`, `assets/fighters/bagger/defeat/baggerdefeat${i}.png`);
         }
+
+        // Madame
+        for (let i = 1; i <= 4; i++) {
+            this.load.image(`madame_idle_${i}`, `assets/fighters/madame/idle/idle${i}.png`);
+        }
+        for (let i = 1; i <= 9; i++) {
+            this.load.image(`madame_hit_${i}`, `assets/fighters/madame/hit/hit${i}.png`);
+        }
+        for (let i = 1; i <= 5; i++) {
+            this.load.image(`madame_defeat_${i}`, `assets/fighters/madame/defeat/defeat${i}.png`);
+        }
+        this.load.image('madame_end', 'assets/fighters/madame/end/end.png');
     }
 
     create() {
@@ -278,8 +307,9 @@ class GameScene extends Phaser.Scene {
         // Combo/book-attack state
         this.bookAttackInProgress = false;
 
-        // Add background
-        const bg = this.add.image(width / 2, height / 2, 'background');
+        // Add background (level depends on opponent)
+        const bgKey = this.opponentKey === 'madame' ? 'background2' : 'background';
+        const bg = this.add.image(width / 2, height / 2, bgKey);
         const bgScale = Math.max(width / bg.width, height / bg.height);
         bg.setScale(bgScale);
 
@@ -290,7 +320,11 @@ class GameScene extends Phaser.Scene {
         this.player = new Player(this, 400, this.groundY);
 
         // Create Enemy
-        this.enemy = new Enemy(this, width - 500, this.groundY);
+        if (this.opponentKey === 'madame') {
+            this.enemy = new MadameEnemy(this, width - 500, this.groundY);
+        } else {
+            this.enemy = new Enemy(this, width - 500, this.groundY);
+        }
 
         // Ensure render order: player in front of enemy
         // (higher depth renders on top)
@@ -387,7 +421,8 @@ class GameScene extends Phaser.Scene {
         this.playerHpBar = this.add.rectangle(50, barY, barWidth, barHeight, 0x00ff00).setOrigin(0, 0);
 
         // Enemy HP (right side)
-        this.add.text(width - 450, barY - 30, 'BAGGER', {
+        const enemyLabel = this.opponentKey === 'madame' ? 'THE MADAME' : 'JCB';
+        this.add.text(width - 450, barY - 30, enemyLabel, {
             fontSize: '24px',
             fontFamily: 'Arial',
             color: '#ffffff',
@@ -572,27 +607,63 @@ class GameScene extends Phaser.Scene {
             fontStyle: 'bold'
         }).setOrigin(0.5);
 
-        // Restart text
-        const restartText = this.add.text(width / 2, height / 2 + 100, 'TOUCH TO RESTART', {
-            fontSize: '48px',
-            fontFamily: 'Arial',
-            color: '#ffffff'
-        }).setOrigin(0.5);
+        if (result === 'VICTORY!') {
+            // Two options after victory
+            const playAgain = this.add.text(width / 2, height / 2 + 80, 'PLAY AGAIN', {
+                fontSize: '56px',
+                fontFamily: 'Arial',
+                color: '#ffffff',
+                fontStyle: 'bold'
+            }).setOrigin(0.5);
+            playAgain.setInteractive({ useHandCursor: true });
 
-        // Blinking animation
-        this.tweens.add({
-            targets: restartText,
-            alpha: 0.3,
-            duration: 800,
-            yoyo: true,
-            repeat: -1
-        });
+            const chooseOther = this.add.text(width / 2, height / 2 + 160, 'PLAY OTHER LEVEL', {
+                fontSize: '40px',
+                fontFamily: 'Arial',
+                color: '#dddddd'
+            }).setOrigin(0.5);
+            chooseOther.setInteractive({ useHandCursor: true });
 
-        // Restart on touch
-        this.input.once('pointerdown', () => {
-            this.scene.restart();
-            this.gameOver = false;
-        });
+            // Blink the primary option
+            this.tweens.add({
+                targets: playAgain,
+                alpha: 0.3,
+                duration: 800,
+                yoyo: true,
+                repeat: -1
+            });
+
+            playAgain.on('pointerdown', () => {
+                this.scene.restart({ opponentKey: this.opponentKey });
+                this.gameOver = false;
+            });
+            chooseOther.on('pointerdown', () => {
+                this.scene.start('OpponentSelectScene');
+                this.gameOver = false;
+            });
+        } else {
+            // Restart text (defeat)
+            const restartText = this.add.text(width / 2, height / 2 + 100, 'TOUCH TO RESTART', {
+                fontSize: '48px',
+                fontFamily: 'Arial',
+                color: '#ffffff'
+            }).setOrigin(0.5);
+
+            // Blinking animation
+            this.tweens.add({
+                targets: restartText,
+                alpha: 0.3,
+                duration: 800,
+                yoyo: true,
+                repeat: -1
+            });
+
+            // Restart on touch
+            this.input.once('pointerdown', () => {
+                this.scene.restart({ opponentKey: this.opponentKey });
+                this.gameOver = false;
+            });
+        }
     }
 }
 

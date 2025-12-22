@@ -1,8 +1,8 @@
 class Player {
     constructor(scene, x, y) {
         this.scene = scene;
-        this.hp = 100;
-        this.maxHp = 100;
+        this.hp = 200;
+        this.maxHp = 200;
         this.damage = 10;
         this.isAttacking = false;
         this.isDead = false;
