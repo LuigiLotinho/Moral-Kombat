@@ -3,6 +3,216 @@ class GameScene extends Phaser.Scene {
         super({ key: 'GameScene' });
     }
 
+    /**
+     * Removes pure/near-black backgrounds by keying out black pixels (sets alpha to 0).
+     * Useful when PNGs were exported without transparency and have a black background.
+     */
+    makeBlackTransparent(textureKey, threshold = 12) {
+        if (!this.textures.exists(textureKey)) return;
+
+        const tex = this.textures.get(textureKey);
+        const src = tex?.getSourceImage?.();
+        if (!src) return;
+
+        // If it's already a canvas texture, we likely processed it before (scene restart)
+        if (typeof HTMLCanvasElement !== 'undefined' && src instanceof HTMLCanvasElement) return;
+
+        const w = src.width;
+        const h = src.height;
+        if (!w || !h) return;
+
+        const canvas = document.createElement('canvas');
+        canvas.width = w;
+        canvas.height = h;
+        const ctx = canvas.getContext('2d', { willReadFrequently: true });
+        if (!ctx) return;
+
+        ctx.clearRect(0, 0, w, h);
+        ctx.drawImage(src, 0, 0);
+
+        const img = ctx.getImageData(0, 0, w, h);
+        const data = img.data;
+        const t = threshold;
+
+        for (let i = 0; i < data.length; i += 4) {
+            const r = data[i];
+            const g = data[i + 1];
+            const b = data[i + 2];
+            // If pixel is near-black, make it transparent
+            if (r <= t && g <= t && b <= t) {
+                data[i + 3] = 0;
+            }
+        }
+
+        ctx.putImageData(img, 0, 0);
+
+        // Replace the original texture with the processed (transparent) canvas texture
+        this.textures.remove(textureKey);
+        this.textures.addCanvas(textureKey, canvas);
+    }
+
+    /**
+     * Pads a list of textures to a shared maximum width/height.
+     * Default: center horizontally, align to bottom vertically (good for characters on the ground).
+     */
+    padTexturesToMax(textureKeys, { alignBottom = true } = {}) {
+        const keys = textureKeys.filter((k) => this.textures.exists(k));
+        if (keys.length === 0) return;
+
+        // Find max dimensions
+        let maxW = 0;
+        let maxH = 0;
+        const sources = new Map();
+        for (const key of keys) {
+            const tex = this.textures.get(key);
+            const src = tex?.getSourceImage?.();
+            if (!src) continue;
+            sources.set(key, src);
+            maxW = Math.max(maxW, src.width || 0);
+            maxH = Math.max(maxH, src.height || 0);
+        }
+        if (!maxW || !maxH) return;
+
+        for (const key of keys) {
+            const src = sources.get(key);
+            if (!src) continue;
+
+            // Skip if already padded to max size (avoids re-padding on scene restart)
+            if (
+                typeof HTMLCanvasElement !== 'undefined' &&
+                src instanceof HTMLCanvasElement &&
+                src.width === maxW &&
+                src.height === maxH
+            ) {
+                continue;
+            }
+
+            const w = src.width;
+            const h = src.height;
+            const canvas = document.createElement('canvas');
+            canvas.width = maxW;
+            canvas.height = maxH;
+            const ctx = canvas.getContext('2d', { willReadFrequently: true });
+            if (!ctx) continue;
+            ctx.clearRect(0, 0, maxW, maxH);
+
+            const dx = Math.floor((maxW - w) / 2);
+            const dy = alignBottom ? maxH - h : Math.floor((maxH - h) / 2);
+            ctx.drawImage(src, dx, dy);
+
+            this.textures.remove(key);
+            this.textures.addCanvas(key, canvas);
+        }
+    }
+
+    /**
+     * Like padding, but aligns each frame by the bottom-most opaque pixel (alpha threshold),
+     * so inconsistent transparent "floor padding" doesn't make the character jump/scale.
+     */
+    padTexturesByOpaqueBottom(textureKeys, { alphaThreshold = 10 } = {}) {
+        const keys = textureKeys.filter((k) => this.textures.exists(k));
+        if (keys.length === 0) return;
+
+        let maxW = 0;
+        let maxH = 0;
+        const sources = new Map();
+        for (const key of keys) {
+            const tex = this.textures.get(key);
+            const src = tex?.getSourceImage?.();
+            if (!src) continue;
+            sources.set(key, src);
+            maxW = Math.max(maxW, src.width || 0);
+            maxH = Math.max(maxH, src.height || 0);
+        }
+        if (!maxW || !maxH) return;
+
+        for (const key of keys) {
+            const src = sources.get(key);
+            if (!src) continue;
+
+            // If already padded to the correct size, skip (common on scene restart)
+            if (
+                typeof HTMLCanvasElement !== 'undefined' &&
+                src instanceof HTMLCanvasElement &&
+                src.width === maxW &&
+                src.height === maxH
+            ) {
+                continue;
+            }
+
+            const w = src.width;
+            const h = src.height;
+
+            // Read pixels to find bottom-most opaque pixel
+            const tmp = document.createElement('canvas');
+            tmp.width = w;
+            tmp.height = h;
+            const tctx = tmp.getContext('2d', { willReadFrequently: true });
+            if (!tctx) continue;
+            tctx.clearRect(0, 0, w, h);
+            tctx.drawImage(src, 0, 0);
+            const img = tctx.getImageData(0, 0, w, h);
+            const data = img.data;
+
+            let maxY = -1;
+            for (let y = h - 1; y >= 0; y--) {
+                let rowHasOpaque = false;
+                const rowStart = y * w * 4;
+                for (let x = 0; x < w; x++) {
+                    const a = data[rowStart + x * 4 + 3];
+                    if (a > alphaThreshold) {
+                        rowHasOpaque = true;
+                        break;
+                    }
+                }
+                if (rowHasOpaque) {
+                    maxY = y;
+                    break;
+                }
+            }
+            if (maxY < 0) maxY = h - 1;
+
+            const canvas = document.createElement('canvas');
+            canvas.width = maxW;
+            canvas.height = maxH;
+            const ctx = canvas.getContext('2d', { willReadFrequently: true });
+            if (!ctx) continue;
+            ctx.clearRect(0, 0, maxW, maxH);
+
+            const dx = Math.floor((maxW - w) / 2);
+            const dy = (maxH - 1) - maxY;
+            ctx.drawImage(src, dx, dy);
+
+            this.textures.remove(key);
+            this.textures.addCanvas(key, canvas);
+        }
+    }
+
+    makeDefeatTexturesTransparent() {
+        // Monk
+        for (let i = 1; i <= 4; i++) this.makeBlackTransparent(`monk_dying_${i}`);
+        this.makeBlackTransparent('monk_defeat');
+        this.makeBlackTransparent('monk_end');
+        // Monk victory / celebration frames (new set: 1..36; some exports have black bg)
+        for (let i = 1; i <= 36; i++) this.makeBlackTransparent(`monk_victory_${i}`);
+        // Normalize victory frame sizes so all *used* frames are consistent.
+        // We align by opaque-bottom to avoid "wobble" from inconsistent transparent padding.
+        this.padTexturesByOpaqueBottom(Array.from({ length: 27 }, (_, idx) => `monk_victory_${idx + 10}`));
+
+        // Monk book-cast animation (book attack) - current set 1..5
+        for (let i = 1; i <= 5; i++) this.makeBlackTransparent(`monk_book_${i}`);
+        // Align by opaque-bottom (fixes visible "size/position wobble" caused by inconsistent transparent padding)
+        this.padTexturesByOpaqueBottom(Array.from({ length: 5 }, (_, idx) => `monk_book_${idx + 1}`));
+
+        // Bagger
+        for (let i = 1; i <= 8; i++) this.makeBlackTransparent(`bagger_dying_${i}`);
+        this.makeBlackTransparent('bagger_defeat');
+        for (let i = 1; i <= 3; i++) this.makeBlackTransparent(`bagger_defeat_loop_${i}`);
+
+        // Book sprite (key out black bg)
+        this.makeBlackTransparent('book', 10);
+    }
+
     preload() {
         // Background
         this.load.image('background', 'assets/backgrounds/matrimandir background.png');
@@ -20,16 +230,53 @@ class GameScene extends Phaser.Scene {
         for (let i = 1; i <= 2; i++) {
             this.load.image(`monk_hit_${i}`, `assets/fighters/monk/hit/hit${i}.png`);
         }
+        
+        // Monk defeat (4-frame dying + final dead pose)
+        for (let i = 1; i <= 4; i++) {
+            this.load.image(`monk_dying_${i}`, `assets/fighters/monk/defeat/monkdying${i}.png`);
+        }
+        this.load.image('monk_defeat', 'assets/fighters/monk/defeat/monkdefeat.png');
+        // Cache-bust so edits to monkend.png are always picked up on reload during development
+        this.load.image('monk_end', `assets/fighters/monk/end/monkend.png?v=${Date.now()}`);
+
+        // Monk victory / celebration (new set: 1..36)
+        for (let i = 1; i <= 36; i++) {
+            this.load.image(`monk_victory_${i}`, `assets/fighters/monk/victory/monkwin${i}.png`);
+        }
+
+        // Book attack assets
+        this.load.image('book', 'assets/attacks/book/book.png');
+        // Monk book-cast frames: current set is 1..5
+        for (let i = 1; i <= 5; i++) {
+            this.load.image(`monk_book_${i}`, `assets/fighters/monk/book/monkbook${i}.png`);
+        }
 
         // Bagger (Enemy) - NEW idle + 12-frame attack
         this.load.image('bagger_idle', 'assets/fighters/bagger/idle/baggeridle.png');
         for (let i = 1; i <= 12; i++) {
             this.load.image(`bagger_attack_${i}`, `assets/fighters/bagger/attack/baggerhit${i}.png`);
         }
+
+        // Bagger defeat (8-frame dying + final dead pose)
+        for (let i = 1; i <= 8; i++) {
+            this.load.image(`bagger_dying_${i}`, `assets/fighters/bagger/defeat/baggerdying${i}.png`);
+        }
+        this.load.image('bagger_defeat', 'assets/fighters/bagger/defeat/baggerdefeat.png');
+
+        // Bagger defeat loop (3-frame)
+        for (let i = 1; i <= 3; i++) {
+            this.load.image(`bagger_defeat_loop_${i}`, `assets/fighters/bagger/defeat/baggerdefeat${i}.png`);
+        }
     }
 
     create() {
         const { width, height } = this.cameras.main;
+
+        // Ensure defeat/dying PNGs with black background become transparent
+        this.makeDefeatTexturesTransparent();
+
+        // Combo/book-attack state
+        this.bookAttackInProgress = false;
 
         // Add background
         const bg = this.add.image(width / 2, height / 2, 'background');
@@ -44,6 +291,11 @@ class GameScene extends Phaser.Scene {
 
         // Create Enemy
         this.enemy = new Enemy(this, width - 500, this.groundY);
+
+        // Ensure render order: player in front of enemy
+        // (higher depth renders on top)
+        this.enemy.sprite.setDepth(10);
+        this.player.sprite.setDepth(20);
 
         // Health Bars
         this.createHealthBars();
@@ -62,6 +314,59 @@ class GameScene extends Phaser.Scene {
 
         // Fade in
         this.cameras.main.fadeIn(500, 0, 0, 0);
+    }
+
+    spawnBookAttack(damage) {
+        if (this.bookAttackInProgress) return;
+        if (!this.enemy || this.enemy.hp <= 0) return;
+
+        this.bookAttackInProgress = true;
+
+        const targetX = this.enemy.sprite.x;
+        const targetY = this.enemy.sprite.y - 250;
+
+        const book = this.add.image(targetX, -200, 'book');
+        book.setOrigin(0.5, 0.5);
+        book.setDepth(50);
+        book.setScale(0.9);
+
+        // Drop + small spin for impact feel
+        this.tweens.add({
+            targets: book,
+            y: targetY,
+            angle: 12,
+            duration: 520,
+            ease: 'Quad.in',
+            onComplete: () => {
+                // Impact: damage equals kick damage (passed in)
+                if (this.enemy && this.enemy.hp > 0) {
+                    this.enemy.takeDamage(damage);
+                }
+
+                this.cameras.main.shake(140, 0.01);
+
+                // Let the book "stay" for two short poses (2 frames/steps) before fading out
+                book.setAngle(-6);
+                book.setScale(0.95);
+                this.time.delayedCall(120, () => {
+                    book.setAngle(0);
+                    book.setScale(0.9);
+                });
+
+                // Keep it on the ground briefly, then fade
+                this.time.delayedCall(700, () => {
+                    this.tweens.add({
+                        targets: book,
+                        alpha: 0,
+                        duration: 160,
+                        onComplete: () => {
+                            book.destroy();
+                            this.bookAttackInProgress = false;
+                        }
+                    });
+                });
+            }
+        });
     }
 
     createHealthBars() {
@@ -236,18 +541,28 @@ class GameScene extends Phaser.Scene {
 
         if (this.player.hp <= 0) {
             this.gameOver = true;
-            this.showGameOverScreen('DEFEAT');
+            // Let the defeat animation play before we overlay the screen
+            this.time.delayedCall(650, () => {
+                this.showGameOverScreen('DEFEAT');
+            });
         } else if (this.enemy.hp <= 0) {
             this.gameOver = true;
-            this.showGameOverScreen('VICTORY!');
+            // Let the enemy dying animation play before we overlay the screen
+            this.time.delayedCall(950, () => {
+                // Trigger player celebration before showing text
+                if (this.player?.celebrateVictory) this.player.celebrateVictory();
+                // Show victory overlay + "touch to restart"
+                this.showGameOverScreen('VICTORY!');
+            });
         }
     }
 
     showGameOverScreen(result) {
         const { width, height } = this.cameras.main;
 
-        // Dark overlay
-        const overlay = this.add.rectangle(0, 0, width, height, 0x000000, 0.8).setOrigin(0);
+        // Dark overlay (disable for DEFEAT so the scene stays visible)
+        const overlayAlpha = result === 'DEFEAT' ? 0 : 0.8;
+        const overlay = this.add.rectangle(0, 0, width, height, 0x000000, overlayAlpha).setOrigin(0);
 
         // Result text
         const resultText = this.add.text(width / 2, height / 2 - 100, result, {
