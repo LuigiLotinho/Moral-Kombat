@@ -18,7 +18,7 @@ const config = {
             debug: false
         }
     },
-    scene: [IntroScene, GameScene],
+    scene: [IntroScene, OpponentSelectScene, GameScene],
     backgroundColor: '#000000'
 };
 
