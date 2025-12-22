@@ -7,9 +7,20 @@ class Player {
         this.isAttacking = false;
         this.isDead = false;
         this.isCelebrating = false;
-        this.celebrationScaleFactor = 1.3;
+        // Victory + end should be 50% smaller
+        this.celebrationScaleFactor = 0.5;
+        this.isCastingBook = false;
+        // Book-Animation: 50% smaller
+        this.bookScaleFactor = 0.5;
+        // Hard lock controls after victory so no moves/attacks are possible
+        this.controlsLocked = false;
         this.victoryX = null;
         this.victoryY = null;
+        // Combo: Punch -> Punch -> Kick triggers a Book attack
+        this.comboWindowMs = 1400;
+        this.comboInputs = []; // [{ type: 'P'|'K', t: number }]
+        // Input buffering so super-fast Punch->Kick still triggers
+        this.pendingKick = false;
         this.movementSpeed = 5;
         this.isMoving = false;
         this.moveDirection = 0; // -1 = left, 1 = right, 0 = stop
@@ -17,14 +28,13 @@ class Player {
         // Create sprite (use first idle frame)
         this.sprite = scene.physics.add.sprite(x, y, 'monk_idle_1');
         this.sprite.setScale(2.0);
+        this.baseScale = this.sprite.scaleX;
         // Anchor to feet and lift slightly so he stands higher in the frame
         this.sprite.setOrigin(0.5, 1);
         this.sprite.y = y - 30;
         this.sprite.setCollideWorldBounds(true);
 
-        // Lock a constant display size so frames never "grow/shrink" due to different cropping
-        this.baseDisplayWidth = this.sprite.displayWidth;
-        this.baseDisplayHeight = this.sprite.displayHeight;
+        // Keep a constant *uniform* scale so frames never "stretch" due to different aspect ratios
         this.lockDisplaySize();
         // Keep size locked even while animations play (including after death when Player.update() isn't called)
         this.sprite.on('animationupdate', () => {
@@ -41,8 +51,10 @@ class Player {
 
     lockDisplaySize() {
         if (!this.sprite) return;
-        const factor = this.isCelebrating ? this.celebrationScaleFactor : 1;
-        this.sprite.setDisplaySize(this.baseDisplayWidth * factor, this.baseDisplayHeight * factor);
+        const celebrateFactor = this.isCelebrating ? this.celebrationScaleFactor : 1;
+        const bookFactor = this.isCastingBook ? this.bookScaleFactor : 1;
+        const factor = celebrateFactor * bookFactor;
+        this.sprite.setScale(this.baseScale * factor);
     }
 
     lockVictoryPosition() {
@@ -131,6 +143,23 @@ class Player {
             });
         }
 
+        // Book-cast animation (frames may be missing; only include existing textures)
+        if (!scene.anims.exists('monk_book_anim')) {
+            const rawFrames = [];
+            for (let i = 1; i <= 5; i++) {
+                const key = `monk_book_${i}`;
+                if (scene.textures.exists(key)) rawFrames.push(key);
+            }
+            if (rawFrames.length === 0) rawFrames.push('monk_idle_1');
+
+            scene.anims.create({
+                key: 'monk_book_anim',
+                frames: rawFrames.map((key) => ({ key })),
+                frameRate: 12,
+                repeat: 0
+            });
+        }
+
         // Victory / celebration animation (frames may be missing; only include existing textures)
         if (!scene.anims.exists('monk_victory_anim')) {
             const rawFrames = [];
@@ -153,7 +182,69 @@ class Player {
         }
     }
 
+    registerComboInput(type) {
+        const now = Date.now();
+        this.comboInputs.push({ type, t: now });
+        if (this.comboInputs.length > 3) this.comboInputs.shift();
+        this.comboInputs = this.comboInputs.filter((e) => now - e.t <= this.comboWindowMs);
+    }
+
+    isBookComboReady() {
+        if (this.comboInputs.length < 2) return false;
+        const [a, b] = this.comboInputs.slice(-2);
+        if (a.type !== 'P' || b.type !== 'K') return false;
+        return b.t - a.t <= this.comboWindowMs;
+    }
+
+    performBookAttackCombo() {
+        // consume combo so it doesn't retrigger
+        this.comboInputs = [];
+
+        // Damage: double kick damage
+        const kickDamage = this.damage * 1.5;
+        const bookDamage = kickDamage * 2;
+        if (this.scene?.spawnBookAttack) this.scene.spawnBookAttack(bookDamage);
+
+        // Monk arm movement during the book drop
+        this.isCastingBook = true;
+        this.sprite.play('monk_book_anim');
+        // Prevent a 1-frame "pop" on the first frame before animationupdate fires
+        this.lockDisplaySize();
+        this.sprite.once('animationcomplete', () => {
+            this.isCastingBook = false;
+            this.isAttacking = false;
+            if (this.hp > 0) this.sprite.play('monk_idle_anim');
+        });
+    }
+
+    executeKickFromBuffer() {
+        if (this.hp <= 0 || this.isDead || this.isCelebrating) return;
+        if (this.isAttacking) return;
+
+        const triggerBookCombo = this.isBookComboReady();
+        this.isAttacking = true;
+
+        if (triggerBookCombo) {
+            this.performBookAttackCombo();
+            return;
+        }
+
+        this.sprite.play('monk_kick_anim');
+
+        this.sprite.once('animationcomplete', () => {
+            this.isAttacking = false;
+            if (this.hp > 0) {
+                this.sprite.play('monk_idle_anim');
+            }
+        });
+
+        // Normal kick damage (kicks do more damage)
+        const kickDamage = this.damage * 1.5;
+        this.checkAttackHit(kickDamage);
+    }
+
     moveLeft() {
+        if (this.controlsLocked) return;
         if (!this.isAttacking && this.hp > 0) {
             this.moveDirection = -1;
             this.isMoving = true;
@@ -162,6 +253,7 @@ class Player {
     }
 
     moveRight() {
+        if (this.controlsLocked) return;
         if (!this.isAttacking && this.hp > 0) {
             this.moveDirection = 1;
             this.isMoving = true;
@@ -170,21 +262,28 @@ class Player {
     }
 
     stopMove() {
+        if (this.controlsLocked) return;
         this.moveDirection = 0;
         this.isMoving = false;
     }
 
     punch() {
+        if (this.controlsLocked) return;
         if (this.isAttacking || this.hp <= 0) return;
+        this.registerComboInput('P');
         
         this.isAttacking = true;
         this.sprite.play('monk_punch_anim');
         
         this.sprite.once('animationcomplete', () => {
             this.isAttacking = false;
-            if (this.hp > 0) {
-                this.sprite.play('monk_idle_anim');
+            // If user pressed Kick during Punch, execute it now (buffered)
+            if (this.pendingKick && this.hp > 0 && !this.isDead) {
+                this.pendingKick = false;
+                this.executeKickFromBuffer();
+                return;
             }
+            if (this.hp > 0) this.sprite.play('monk_idle_anim');
         });
 
         // Check for hit
@@ -192,9 +291,24 @@ class Player {
     }
 
     kick() {
-        if (this.isAttacking || this.hp <= 0) return;
+        if (this.controlsLocked) return;
+        if (this.hp <= 0) return;
+        // Buffer Kick if pressed during another animation (so fast Punch->Kick still works)
+        if (this.isAttacking) {
+            this.registerComboInput('K');
+            this.pendingKick = true;
+            return;
+        }
+        this.registerComboInput('K');
+        const triggerBookCombo = this.isBookComboReady();
         
         this.isAttacking = true;
+        // If combo is ready (Punch -> Kick), do the Book attack instead of a normal kick hit
+        if (triggerBookCombo) {
+            this.performBookAttackCombo();
+            return;
+        }
+
         this.sprite.play('monk_kick_anim');
         
         this.sprite.once('animationcomplete', () => {
@@ -205,7 +319,8 @@ class Player {
         });
 
         // Check for hit (kicks do more damage)
-        this.checkAttackHit(this.damage * 1.5);
+        const kickDamage = this.damage * 1.5;
+        this.checkAttackHit(kickDamage);
     }
 
     // No special move in the new frame set (yet)
@@ -266,6 +381,9 @@ class Player {
     celebrateVictory() {
         if (this.hp <= 0 || this.isDead || this.isCelebrating) return;
         this.isCelebrating = true;
+        this.controlsLocked = true;
+        this.pendingKick = false;
+        this.comboInputs = [];
         this.isAttacking = true;
         this.isMoving = false;
         this.moveDirection = 0;
@@ -283,7 +401,10 @@ class Player {
         // Play once, then hold on the meditation frame until the next game starts
         this.sprite.play('monk_victory_anim');
         this.sprite.once('animationcomplete', () => {
-            this.sprite.setTexture('monk_victory_36'); // meditation/end pose (new set)
+            // After victory, show end pose only
+            this.sprite.anims?.stop?.();
+            this.sprite.setTexture('monk_end');
+            this.isAttacking = false;
             this.lockDisplaySize();
             this.lockVictoryPosition();
         });
