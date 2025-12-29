@@ -355,6 +355,9 @@ class GameScene extends Phaser.Scene {
         }
         this.gameObjects.push(this.enemy.sprite);
 
+        // Always bind keyboard controls once (desktop testing + fallback)
+        this.bindKeyboardOnce();
+
         // Ensure render order: player in front of enemy
         // (higher depth renders on top)
         this.enemy.sprite.setDepth(10);
@@ -388,6 +391,16 @@ class GameScene extends Phaser.Scene {
             this.layout = newLayout;
             this.applyLayout(newLayout);
         });
+    }
+
+    bindKeyboardOnce() {
+        if (this.cursors) return;
+        this.cursors = this.input.keyboard.createCursorKeys();
+        this.keys = {
+            punch: this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.A),
+            kick: this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.S),
+            jump: this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.SPACE)
+        };
     }
 
     computeLayout(gameW, gameH) {
@@ -586,36 +599,22 @@ class GameScene extends Phaser.Scene {
         const padding = 24;
         const safeBottom = 64;
 
-        // Only show touch controls on touch devices.
-        const isTouch = !!(this.sys?.game?.device?.input?.touch);
-        if (!isTouch) {
-            // Bind keyboard once (desktop)
-            if (!this.cursors) {
-                this.cursors = this.input.keyboard.createCursorKeys();
-                this.keys = {
-                    punch: this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.A),
-                    kick: this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.S),
-                    jump: this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.SPACE)
-                };
-            }
-            return;
-        }
+        // Always keep keyboard bound as fallback
+        this.bindKeyboardOnce();
 
-        // If there is still no room in the sidebars (e.g. 4:3 tablets), show a hint.
+        // If there is still no room in the sidebars (e.g. exactly 16:9), we can't place buttons
+        // without overlapping the arena. Show a small hint instead.
         if (leftW < 120 || rightW < 120) {
-            if (!this._mkNoSidebarHint) {
-                const hint = this.add
-                    .text(gameW / 2, gameH - 40, 'Hinweis: Touch-Buttons erscheinen nur, wenn links/rechts Platz ist (breiteres Querformat).', {
-                        fontSize: '18px',
-                        fontFamily: 'Arial',
-                        color: '#ffffff'
-                    })
-                    .setOrigin(0.5)
-                    .setDepth(1100);
-                this._mkNoSidebarHint = hint;
-                this.uiObjects.push(hint);
-                this.gameCam?.ignore?.([hint]);
-            }
+            const hint = this.add
+                .text(gameW / 2, gameH - 40, 'Kein Platz für Sidebars: Touch-Buttons erscheinen nur, wenn links/rechts Platz ist.', {
+                    fontSize: '18px',
+                    fontFamily: 'Arial',
+                    color: '#ffffff'
+                })
+                .setOrigin(0.5)
+                .setDepth(1100);
+            this.uiObjects.push(hint);
+            this.gameCam?.ignore?.([hint]);
             return;
         }
 
@@ -634,9 +633,11 @@ class GameScene extends Phaser.Scene {
         const baseY = gameH - safeBottom - padding - radius;
 
         // Movement Controls (Left sidebar)
-        const leftBtnX = leftX0 + Math.min(leftW - padding - radius, padding + radius);
-        const rightBtnX = leftX0 + Math.min(leftW - padding - radius, padding + radius + radius * 2 + gap);
-        const jumpBtnX = leftX0 + Math.min(leftW - padding - radius, padding + radius + radius + Math.floor(gap / 2));
+        const minLX = leftX0 + padding + radius;
+        const maxLX = leftX0 + leftW - padding - radius;
+        const leftBtnX = Phaser.Math.Clamp(leftX0 + padding + radius, minLX, maxLX);
+        const rightBtnX = Phaser.Math.Clamp(leftX0 + padding + radius + radius * 2 + gap, minLX, maxLX);
+        const jumpBtnX = Phaser.Math.Clamp(leftX0 + padding + radius + radius + Math.floor(gap / 2), minLX, maxLX);
         const jumpBtnY = baseY - (radius * 2 + gap);
 
         const leftBtn = this.createButton(leftBtnX, baseY, '◄', 0x444444, radius);
@@ -644,8 +645,10 @@ class GameScene extends Phaser.Scene {
         const jumpBtn = this.createButton(jumpBtnX, jumpBtnY, '↑', 0x44aaff, radius);
 
         // Attack Controls (Right sidebar)
-        const punchBtnX = rightX0 + Math.max(padding + radius, Math.floor(rightW * 0.35));
-        const kickBtnX = rightX0 + Math.max(padding + radius, Math.floor(rightW * 0.70));
+        const minRX = rightX0 + padding + radius;
+        const maxRX = rightX0 + rightW - padding - radius;
+        const punchBtnX = Phaser.Math.Clamp(rightX0 + Math.floor(rightW * 0.35), minRX, maxRX);
+        const kickBtnX = Phaser.Math.Clamp(rightX0 + Math.floor(rightW * 0.70), minRX, maxRX);
         const punchBtn = this.createButton(punchBtnX, baseY, 'P', 0xff4444, radius);
         const kickBtn = this.createButton(kickBtnX, baseY, 'K', 0xff8844, radius);
         // No special button in the new move set
@@ -700,15 +703,7 @@ class GameScene extends Phaser.Scene {
         kickBtn.on('pointerdown', () => this.player.kick());
         jumpBtn.on('pointerdown', () => this.player.jump?.());
 
-        // Keyboard controls (for desktop testing) - bind once
-        if (!this.cursors) {
-            this.cursors = this.input.keyboard.createCursorKeys();
-            this.keys = {
-                punch: this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.A),
-                kick: this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.S),
-                jump: this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.SPACE)
-            };
-        }
+        // Keyboard controls already bound in bindKeyboardOnce()
     }
 
     createButton(x, y, text, color, radius = 60) {
@@ -750,22 +745,22 @@ class GameScene extends Phaser.Scene {
                 else this.player.moveRight();
             } else {
                 // Keyboard controls (desktop)
-                if (this.cursors.left.isDown) {
+                if (this.cursors?.left?.isDown) {
                     this.player.moveLeft();
-                } else if (this.cursors.right.isDown) {
+                } else if (this.cursors?.right?.isDown) {
                     this.player.moveRight();
                 } else {
                     this.player.stopMove();
                 }
             }
 
-            if (Phaser.Input.Keyboard.JustDown(this.keys.punch)) {
+            if (this.keys?.punch && Phaser.Input.Keyboard.JustDown(this.keys.punch)) {
                 this.player.punch();
             }
-            if (Phaser.Input.Keyboard.JustDown(this.keys.kick)) {
+            if (this.keys?.kick && Phaser.Input.Keyboard.JustDown(this.keys.kick)) {
                 this.player.kick();
             }
-            if (this.keys.jump && Phaser.Input.Keyboard.JustDown(this.keys.jump)) {
+            if (this.keys?.jump && Phaser.Input.Keyboard.JustDown(this.keys.jump)) {
                 this.player.jump?.();
             }
         }
