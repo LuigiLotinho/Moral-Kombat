@@ -48,6 +48,42 @@
             max-height: 100%;
             touch-action: none;
         }
+
+        /* Fullscreen toggle button (YouTube-style) */
+        #fullscreen-toggle {
+            position: fixed;
+            top: 14px;
+            right: 14px;
+            z-index: 2000;
+            width: 54px;
+            height: 54px;
+            border-radius: 14px;
+            border: 2px solid rgba(255, 255, 255, 0.55);
+            background: rgba(0, 0, 0, 0.55);
+            color: #fff;
+            font-size: 28px;
+            font-family: Arial, sans-serif;
+            line-height: 1;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            -webkit-tap-highlight-color: transparent;
+            user-select: none;
+            cursor: pointer;
+        }
+
+        #fullscreen-toggle:active {
+            transform: scale(0.96);
+            background: rgba(0, 0, 0, 0.75);
+        }
+
+        /* Respect safe area (iOS notch) */
+        @supports (padding: env(safe-area-inset-top)) {
+            #fullscreen-toggle {
+                top: calc(14px + env(safe-area-inset-top));
+                right: calc(14px + env(safe-area-inset-right));
+            }
+        }
         
         /* Landscape orientation hint (touch devices only) */
         @media (orientation: portrait) and (hover: none) and (pointer: coarse) {
@@ -89,6 +125,7 @@
     </div>
     
     <div id="game-container"></div>
+    <button id="fullscreen-toggle" type="button" aria-label="Vollbild umschalten" title="Vollbild">⛶</button>
     
     <!-- Phaser 3 from CDN -->
     <script src="https://cdn.jsdelivr.net/npm/phaser@3.70.0/dist/phaser.min.js"></script>
@@ -101,6 +138,84 @@
     <script src="js/scenes/OpponentSelectScene.js"></script>
     <script src="js/scenes/GameScene.js"></script>
     <script src="js/main.js"></script>
+
+    <script>
+        (function () {
+            const btn = document.getElementById('fullscreen-toggle');
+            const container = document.getElementById('game-container') || document.documentElement;
+
+            const fsElement = () =>
+                document.fullscreenElement ||
+                document.webkitFullscreenElement ||
+                document.mozFullScreenElement ||
+                document.msFullscreenElement;
+
+            const setIcon = () => {
+                const isFs = !!fsElement();
+                btn.textContent = isFs ? '⤢' : '⛶';
+                btn.title = isFs ? 'Vollbild beenden' : 'Vollbild';
+            };
+
+            const requestFs = async () => {
+                const el = container;
+                const req =
+                    el.requestFullscreen ||
+                    el.webkitRequestFullscreen ||
+                    el.mozRequestFullScreen ||
+                    el.msRequestFullscreen;
+
+                if (!req) return;
+
+                try {
+                    const ret = req.call(el);
+                    if (ret && typeof ret.then === 'function') await ret;
+                } catch (e) {
+                    // ignore
+                }
+
+                // Best-effort landscape lock (not supported everywhere)
+                try {
+                    if (screen.orientation && screen.orientation.lock) {
+                        await screen.orientation.lock('landscape');
+                    }
+                } catch (e) {
+                    // ignore
+                }
+            };
+
+            const exitFs = async () => {
+                const exit =
+                    document.exitFullscreen ||
+                    document.webkitExitFullscreen ||
+                    document.mozCancelFullScreen ||
+                    document.msExitFullscreen;
+                if (!exit) return;
+                try {
+                    const ret = exit.call(document);
+                    if (ret && typeof ret.then === 'function') await ret;
+                } catch (e) {
+                    // ignore
+                }
+            };
+
+            btn.addEventListener('click', async () => {
+                if (fsElement()) await exitFs();
+                else await requestFs();
+                setIcon();
+            });
+
+            document.addEventListener('fullscreenchange', setIcon);
+            document.addEventListener('webkitfullscreenchange', setIcon);
+
+            // Hide button if fullscreen API is not available
+            const supported =
+                !!(container.requestFullscreen || container.webkitRequestFullscreen) &&
+                !!(document.exitFullscreen || document.webkitExitFullscreen);
+            if (!supported) btn.style.display = 'none';
+
+            setIcon();
+        })();
+    </script>
 </body>
 </html>
 
