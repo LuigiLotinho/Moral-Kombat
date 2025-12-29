@@ -329,6 +329,15 @@ class MadameEnemy {
         if (this.isDead) return;
         this.hp = Math.max(0, this.hp - amount);
 
+        // Flash effect (exactly like the excavator)
+        // Use tint instead of alpha tween so visibility doesn't "stick" to transparent.
+        this.sprite.setAlpha(1);
+        this.scene.tweens.killTweensOf(this.sprite);
+        this.sprite.setTintFill(0xffffff);
+        this.scene.time.delayedCall(120, () => {
+            if (this.sprite && this.sprite.active) this.sprite.clearTint();
+        });
+
         // Play hit animation (interrupt idle/attack visuals but not movement)
         if (this.hp > 0) {
             this.isTakingHit = true;

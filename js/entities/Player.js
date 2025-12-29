@@ -449,8 +449,8 @@ class Player {
             this.sprite.x += this.moveDirection * this.movementSpeed;
             
             // Keep in bounds
-            const { width } = this.scene.cameras.main;
-            this.sprite.x = Phaser.Math.Clamp(this.sprite.x, 100, width - 100);
+            const worldW = this.scene.worldW || this.scene.physics?.world?.bounds?.width || this.scene.cameras.main.width;
+            this.sprite.x = Phaser.Math.Clamp(this.sprite.x, 100, worldW - 100);
         }
 
         // Play idle if not attacking and not dead

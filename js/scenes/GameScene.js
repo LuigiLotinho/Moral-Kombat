@@ -299,7 +299,30 @@ class GameScene extends Phaser.Scene {
     }
 
     create() {
-        const { width, height } = this.cameras.main;
+        // Fixed arena world (base resolution 1920x1080, 16:9)
+        this.worldW = 1920;
+        this.worldH = 1080;
+        this.worldAspect = this.worldW / this.worldH;
+
+        const gameW = this.scale.width;
+        const gameH = this.scale.height;
+
+        // Physics world is the fixed arena world
+        this.physics.world.setBounds(0, 0, this.worldW, this.worldH);
+
+        // Two cameras:
+        // - gameCam renders ONLY the arena world into a centered 16:9 viewport
+        // - uiCam renders ONLY UI (sidebars + touch controls) in full screen space
+        this.gameCam = this.cameras.main;
+        this.uiCam = this.cameras.add(0, 0, gameW, gameH);
+        this.uiCam.setScroll(0, 0);
+
+        this.gameObjects = [];
+        this.uiObjects = [];
+
+        // Compute + apply initial layout
+        this.layout = this.computeLayout(gameW, gameH);
+        this.applyLayout(this.layout);
 
         // Ensure defeat/dying PNGs with black background become transparent
         this.makeDefeatTexturesTransparent();
@@ -307,24 +330,30 @@ class GameScene extends Phaser.Scene {
         // Combo/book-attack state
         this.bookAttackInProgress = false;
 
-        // Add background (level depends on opponent)
+        // Add background (level depends on opponent) inside fixed arena world
         const bgKey = this.opponentKey === 'madame' ? 'background2' : 'background';
-        const bg = this.add.image(width / 2, height / 2, bgKey);
-        const bgScale = Math.max(width / bg.width, height / bg.height);
+        const bg = this.add.image(this.worldW / 2, this.worldH / 2, bgKey);
+        const bgScale = Math.max(this.worldW / bg.width, this.worldH / bg.height);
         bg.setScale(bgScale);
+        this.gameObjects.push(bg);
 
         // Ground line (invisible, for positioning)
-        this.groundY = height - 200;
+        this.groundY = this.worldH - 200;
+
+        // Gameplay bounds (used by Madame teleport/jump clamps)
+        this.playArea = { xMin: 0, xMax: this.worldW, yMin: 0, yMax: this.worldH };
 
         // Create Player
         this.player = new Player(this, 400, this.groundY);
+        this.gameObjects.push(this.player.sprite);
 
         // Create Enemy
         if (this.opponentKey === 'madame') {
-            this.enemy = new MadameEnemy(this, width - 500, this.groundY);
+            this.enemy = new MadameEnemy(this, this.worldW - 500, this.groundY);
         } else {
-            this.enemy = new Enemy(this, width - 500, this.groundY);
+            this.enemy = new Enemy(this, this.worldW - 500, this.groundY);
         }
+        this.gameObjects.push(this.enemy.sprite);
 
         // Ensure render order: player in front of enemy
         // (higher depth renders on top)
@@ -334,8 +363,8 @@ class GameScene extends Phaser.Scene {
         // Health Bars
         this.createHealthBars();
 
-        // Touch Controls
-        this.createTouchControls();
+        // Touch Controls (UI camera / sidebars)
+        this.buildSidebarsAndControls(this.layout);
 
         // Collision detection
         this.physics.add.overlap(
@@ -348,6 +377,100 @@ class GameScene extends Phaser.Scene {
 
         // Fade in
         this.cameras.main.fadeIn(500, 0, 0, 0);
+
+        // Ensure each camera only renders its own layer (prevents double-render bugs)
+        this.gameCam.ignore(this.uiObjects);
+        this.uiCam.ignore(this.gameObjects);
+
+        // Handle dynamic resizes (mobile browser bars/orientation changes)
+        this.scale.on('resize', (gameSize) => {
+            const newLayout = this.computeLayout(gameSize.width, gameSize.height);
+            this.layout = newLayout;
+            this.applyLayout(newLayout);
+        });
+    }
+
+    computeLayout(gameW, gameH) {
+        const aspect = this.worldAspect || (1920 / 1080);
+
+        // Biggest 16:9 arena that fits the screen
+        let arenaW, arenaH;
+        if (gameW / gameH >= aspect) {
+            arenaH = gameH;
+            arenaW = Math.round(gameH * aspect);
+        } else {
+            arenaW = gameW;
+            arenaH = Math.round(gameW / aspect);
+        }
+
+        // Only show sidebars when the device is wider than the arena (per spec).
+        // If the screen is exactly 16:9, we keep the arena full-size (no artificial shrink).
+
+        const arenaX = Math.floor((gameW - arenaW) / 2);
+        const arenaY = Math.floor((gameH - arenaH) / 2);
+
+        return {
+            gameW,
+            gameH,
+            arenaX,
+            arenaY,
+            arenaW,
+            arenaH,
+            leftW: arenaX,
+            rightW: gameW - (arenaX + arenaW)
+        };
+    }
+
+    applyLayout(layout) {
+        // Camera viewport + zoom for the arena world
+        const zoom = layout.arenaW / this.worldW;
+        this.gameCam.setViewport(layout.arenaX, layout.arenaY, layout.arenaW, layout.arenaH);
+        this.gameCam.setZoom(zoom);
+        this.gameCam.setScroll(0, 0);
+        this.gameCam.setBounds(0, 0, this.worldW, this.worldH);
+
+        this.uiCam.setViewport(0, 0, layout.gameW, layout.gameH);
+        this.uiCam.setScroll(0, 0);
+        this.uiCam.setZoom(1);
+
+        // Rebuild UI to match new layout
+        this.buildSidebarsAndControls(layout);
+
+        // Re-apply ignore lists after UI rebuild
+        this.gameCam.ignore(this.uiObjects);
+        this.uiCam.ignore(this.gameObjects);
+    }
+
+    buildSidebarsAndControls(layout) {
+        // Destroy old UI (sidebars + buttons)
+        if (Array.isArray(this.uiObjects) && this.uiObjects.length) {
+            for (const obj of this.uiObjects) obj?.destroy?.();
+        }
+        this.uiObjects = [];
+
+        // Black sidebars when screen is wider than the arena
+        if (layout.leftW > 0) {
+            const leftPanel = this.add.rectangle(0, 0, layout.leftW, layout.gameH, 0x000000, 1).setOrigin(0);
+            leftPanel.setDepth(1000);
+            this.uiObjects.push(leftPanel);
+        }
+        if (layout.rightW > 0) {
+            const rightPanel = this.add
+                .rectangle(layout.arenaX + layout.arenaW, 0, layout.rightW, layout.gameH, 0x000000, 1)
+                .setOrigin(0);
+            rightPanel.setDepth(1000);
+            this.uiObjects.push(rightPanel);
+        }
+
+        // Thin separators at arena edges (optional, helps visually)
+        const sepL = this.add.rectangle(layout.arenaX - 2, 0, 4, layout.gameH, 0xffffff, 0.12).setOrigin(0);
+        const sepR = this.add.rectangle(layout.arenaX + layout.arenaW - 2, 0, 4, layout.gameH, 0xffffff, 0.12).setOrigin(0);
+        sepL.setDepth(1001);
+        sepR.setDepth(1001);
+        this.uiObjects.push(sepL, sepR);
+
+        // Touch controls placed inside sidebars (never overlap arena)
+        this.createTouchControls(layout);
     }
 
     spawnBookAttack(damage) {
@@ -363,6 +486,9 @@ class GameScene extends Phaser.Scene {
         book.setOrigin(0.5, 0.5);
         book.setDepth(50);
         book.setScale(0.9);
+        // Ensure UI camera never renders gameplay objects (prevents double-render artifacts)
+        this.gameObjects?.push?.(book);
+        this.uiCam?.ignore?.([book]);
 
         // Drop + small spin for impact feel
         this.tweens.add({
@@ -404,13 +530,13 @@ class GameScene extends Phaser.Scene {
     }
 
     createHealthBars() {
-        const { width } = this.cameras.main;
+        const width = this.worldW || 1920;
         const barWidth = 400;
         const barHeight = 40;
         const barY = 50;
 
         // Player HP (left side)
-        this.add.text(50, barY - 30, 'SRI AUROBINDO', {
+        const pLabel = this.add.text(50, barY - 30, 'SRI AUROBINDO', {
             fontSize: '24px',
             fontFamily: 'Arial',
             color: '#ffffff',
@@ -422,7 +548,7 @@ class GameScene extends Phaser.Scene {
 
         // Enemy HP (right side)
         const enemyLabel = this.opponentKey === 'madame' ? 'THE MADAME' : 'JCB';
-        this.add.text(width - 450, barY - 30, enemyLabel, {
+        const eLabel = this.add.text(width - 450, barY - 30, enemyLabel, {
             fontSize: '24px',
             fontFamily: 'Arial',
             color: '#ffffff',
@@ -431,27 +557,91 @@ class GameScene extends Phaser.Scene {
 
         this.enemyHpBg = this.add.rectangle(width - 450, barY, barWidth, barHeight, 0x333333).setOrigin(0, 0);
         this.enemyHpBar = this.add.rectangle(width - 450, barY, barWidth, barHeight, 0xff0000).setOrigin(0, 0);
+
+        // Health UI belongs to the arena (game camera)
+        this.gameObjects?.push?.(pLabel, eLabel, this.playerHpBg, this.playerHpBar, this.enemyHpBg, this.enemyHpBar);
     }
 
-    createTouchControls() {
-        const { width, height } = this.cameras.main;
-        const buttonSize = 200;
-        const padding = 40;
-        // Keep buttons reachable on phones (browser bar / safe-area)
-        const safeBottom = 80;
+    createTouchControls(layout) {
+        // Controls are UI objects placed in sidebars (screen space)
+        const gameW = layout?.gameW ?? this.scale.width;
+        const gameH = layout?.gameH ?? this.scale.height;
+        const leftW = layout?.leftW ?? 0;
+        const rightW = layout?.rightW ?? 0;
+        const arenaX = layout?.arenaX ?? 0;
+        const arenaW = layout?.arenaW ?? gameW;
+
+        const padding = 24;
+        const safeBottom = 64;
+
+        // If there is no room in the sidebars, don't place touch controls (keyboard still works on desktop).
+        if (leftW < 140 || rightW < 140) {
+            if (!this._mkNoSidebarHint) {
+                const hint = this.add
+                    .text(gameW / 2, gameH - 40, 'Hinweis: Touch-Buttons erscheinen nur, wenn links/rechts Platz ist (breiteres Querformat).', {
+                        fontSize: '18px',
+                        fontFamily: 'Arial',
+                        color: '#ffffff'
+                    })
+                    .setOrigin(0.5)
+                    .setDepth(1100);
+                this._mkNoSidebarHint = hint;
+                this.uiObjects.push(hint);
+                this.gameCam?.ignore?.([hint]);
+            }
+
+            // Still bind keyboard once
+            if (!this.cursors) {
+                this.cursors = this.input.keyboard.createCursorKeys();
+                this.keys = {
+                    punch: this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.A),
+                    kick: this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.S),
+                    jump: this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.SPACE)
+                };
+            }
+            return;
+        }
+
+        // Use the available sidebar width to size controls
+        const usableSidebar = Math.max(0, Math.min(leftW || 0, rightW || 0)) || Math.max(leftW, rightW) || 320;
+        const radius = Math.max(60, Math.min(110, Math.floor(usableSidebar * 0.22)));
+        const gap = Math.max(18, Math.floor(radius * 0.35));
 
         // Track touch movement so keyboard logic doesn't cancel it each frame
         this.touchMoveDirection = 0; // -1 left, +1 right, 0 none
 
-        // Movement Controls (Left side)
-        const leftBtn = this.createButton(padding + buttonSize, height - safeBottom - padding - buttonSize, '◄', 0x444444, buttonSize / 2);
-        const rightBtn = this.createButton(padding + buttonSize * 2.5, height - safeBottom - padding - buttonSize, '►', 0x444444, buttonSize / 2);
-        const jumpBtn = this.createButton(padding + buttonSize * 1.75, height - safeBottom - padding - buttonSize * 2.1, '↑', 0x44aaff, buttonSize / 2);
+        // If there are no sidebars, we still keep controls within the screen edges.
+        const leftX0 = 0;
+        const rightX0 = arenaX + arenaW;
 
-        // Attack Controls (Right side)
-        const punchBtn = this.createButton(width - padding - buttonSize * 2.5, height - safeBottom - padding - buttonSize, 'P', 0xff4444, buttonSize / 2);
-        const kickBtn = this.createButton(width - padding - buttonSize, height - safeBottom - padding - buttonSize, 'K', 0xff8844, buttonSize / 2);
+        const baseY = gameH - safeBottom - padding - radius;
+
+        // Movement Controls (Left sidebar)
+        const leftBtnX = leftX0 + Math.min(leftW - padding - radius, padding + radius);
+        const rightBtnX = leftX0 + Math.min(leftW - padding - radius, padding + radius + radius * 2 + gap);
+        const jumpBtnX = leftX0 + Math.min(leftW - padding - radius, padding + radius + radius + Math.floor(gap / 2));
+        const jumpBtnY = baseY - (radius * 2 + gap);
+
+        const leftBtn = this.createButton(leftBtnX, baseY, '◄', 0x444444, radius);
+        const rightBtn = this.createButton(rightBtnX, baseY, '►', 0x444444, radius);
+        const jumpBtn = this.createButton(jumpBtnX, jumpBtnY, '↑', 0x44aaff, radius);
+
+        // Attack Controls (Right sidebar)
+        const punchBtnX = rightX0 + Math.max(padding + radius, Math.floor(rightW * 0.35));
+        const kickBtnX = rightX0 + Math.max(padding + radius, Math.floor(rightW * 0.70));
+        const punchBtn = this.createButton(punchBtnX, baseY, 'P', 0xff4444, radius);
+        const kickBtn = this.createButton(kickBtnX, baseY, 'K', 0xff8844, radius);
         // No special button in the new move set
+
+        // These are UI objects (must not be rendered by the game camera)
+        const labelObjs = [
+            leftBtn._mkLabel,
+            rightBtn._mkLabel,
+            jumpBtn._mkLabel,
+            punchBtn._mkLabel,
+            kickBtn._mkLabel
+        ].filter(Boolean);
+        this.uiObjects.push(leftBtn, rightBtn, jumpBtn, punchBtn, kickBtn, ...labelObjs);
 
         // Button Events (mobile-safe: stop on up/out + global up)
         leftBtn.on('pointerdown', () => {
@@ -481,22 +671,27 @@ class GameScene extends Phaser.Scene {
         });
 
         // If finger releases anywhere, stop movement (prevents "stuck" or missed pointerup)
-        this.input.on('pointerup', () => {
-            this.touchMoveDirection = 0;
-            this.player.stopMove();
-        });
+        if (!this._mkGlobalPointerUpBound) {
+            this._mkGlobalPointerUpBound = true;
+            this.input.on('pointerup', () => {
+                this.touchMoveDirection = 0;
+                this.player.stopMove();
+            });
+        }
 
         punchBtn.on('pointerdown', () => this.player.punch());
         kickBtn.on('pointerdown', () => this.player.kick());
         jumpBtn.on('pointerdown', () => this.player.jump?.());
 
-        // Keyboard controls (for desktop testing)
-        this.cursors = this.input.keyboard.createCursorKeys();
-        this.keys = {
-            punch: this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.A),
-            kick: this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.S),
-            jump: this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.SPACE)
-        };
+        // Keyboard controls (for desktop testing) - bind once
+        if (!this.cursors) {
+            this.cursors = this.input.keyboard.createCursorKeys();
+            this.keys = {
+                punch: this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.A),
+                kick: this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.S),
+                jump: this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.SPACE)
+            };
+        }
     }
 
     createButton(x, y, text, color, radius = 60) {
@@ -510,6 +705,9 @@ class GameScene extends Phaser.Scene {
             color: '#ffffff',
             fontStyle: 'bold'
         }).setOrigin(0.5);
+
+        // Keep reference so callers can add the label to UI camera ignore-lists / cleanup
+        button._mkLabel = label;
 
         button.on('pointerdown', () => {
             button.setScale(0.9);
@@ -599,7 +797,9 @@ class GameScene extends Phaser.Scene {
     }
 
     showGameOverScreen(result) {
-        const { width, height } = this.cameras.main;
+        // Game over UI should cover the whole screen (including sidebars), so use canvas size
+        const width = this.scale.width;
+        const height = this.scale.height;
 
         // Dark overlay (disable for DEFEAT so the scene stays visible)
         const overlayAlpha = result === 'DEFEAT' ? 0 : 0.8;
@@ -612,6 +812,12 @@ class GameScene extends Phaser.Scene {
             color: result === 'VICTORY!' ? '#00ff00' : '#ff0000',
             fontStyle: 'bold'
         }).setOrigin(0.5);
+
+        // Ensure this overlay is UI-only (not scaled by arena camera)
+        overlay.setDepth(3000);
+        resultText.setDepth(3001);
+        this.uiObjects?.push?.(overlay, resultText);
+        this.gameCam?.ignore?.([overlay, resultText]);
 
         if (result === 'VICTORY!') {
             // Two options after victory
@@ -629,6 +835,11 @@ class GameScene extends Phaser.Scene {
                 color: '#dddddd'
             }).setOrigin(0.5);
             chooseOther.setInteractive({ useHandCursor: true });
+
+            playAgain.setDepth(3001);
+            chooseOther.setDepth(3001);
+            this.uiObjects?.push?.(playAgain, chooseOther);
+            this.gameCam?.ignore?.([playAgain, chooseOther]);
 
             // Blink the primary option
             this.tweens.add({
@@ -654,6 +865,9 @@ class GameScene extends Phaser.Scene {
                 fontFamily: 'Arial',
                 color: '#ffffff'
             }).setOrigin(0.5);
+            restartText.setDepth(3001);
+            this.uiObjects?.push?.(restartText);
+            this.gameCam?.ignore?.([restartText]);
 
             // Blinking animation
             this.tweens.add({

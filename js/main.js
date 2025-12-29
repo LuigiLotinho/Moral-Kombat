@@ -5,11 +5,10 @@ const config = {
     type: Phaser.AUTO,
     parent: 'game-container',
     scale: {
-        mode: Phaser.Scale.FIT,
-        autoCenter: Phaser.Scale.CENTER_BOTH,
-        width: 1920,
-        height: 1080,
-        orientation: Phaser.Scale.LANDSCAPE
+        // Mobile-first: canvas fills the viewport, we render a centered 16:9 arena inside scenes.
+        // This allows us to render black sidebars + UI controls outside the arena *within* the canvas.
+        mode: Phaser.Scale.RESIZE,
+        autoCenter: Phaser.Scale.CENTER_BOTH
     },
     physics: {
         default: 'arcade',
