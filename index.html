@@ -142,7 +142,9 @@
     <script>
         (function () {
             const btn = document.getElementById('fullscreen-toggle');
-            const container = document.getElementById('game-container') || document.documentElement;
+            // IMPORTANT: Fullscreen must include the toggle button, otherwise you can't exit.
+            // Therefore we fullscreen the whole document (not just #game-container).
+            const fullscreenTarget = document.documentElement;
 
             const fsElement = () =>
                 document.fullscreenElement ||
@@ -157,7 +159,7 @@
             };
 
             const requestFs = async () => {
-                const el = container;
+                const el = fullscreenTarget;
                 const req =
                     el.requestFullscreen ||
                     el.webkitRequestFullscreen ||
@@ -209,7 +211,7 @@
 
             // Hide button if fullscreen API is not available
             const supported =
-                !!(container.requestFullscreen || container.webkitRequestFullscreen) &&
+                !!(fullscreenTarget.requestFullscreen || fullscreenTarget.webkitRequestFullscreen) &&
                 !!(document.exitFullscreen || document.webkitExitFullscreen);
             if (!supported) btn.style.display = 'none';
 
