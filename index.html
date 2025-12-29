@@ -27,11 +27,20 @@
             align-items: center;
         }
         
+        #app-shell {
+            width: 100%;
+            height: 100%;
+            position: relative; /* anchor absolute UI overlays */
+            /* iOS Safari fallback */
+            min-height: -webkit-fill-available;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+
         #game-container {
             width: 100%;
             height: 100%;
-            /* iOS Safari fallback */
-            min-height: -webkit-fill-available;
             display: flex;
             justify-content: center;
             align-items: center;
@@ -51,7 +60,7 @@
 
         /* Fullscreen toggle button (YouTube-style) */
         #fullscreen-toggle {
-            position: fixed;
+            position: absolute;
             top: 14px;
             right: 14px;
             z-index: 2000;
@@ -124,8 +133,10 @@
         Bitte drehe dein Gerät ins Querformat
     </div>
     
-    <div id="game-container"></div>
-    <button id="fullscreen-toggle" type="button" aria-label="Vollbild umschalten" title="Vollbild">⛶</button>
+    <div id="app-shell">
+        <div id="game-container"></div>
+        <button id="fullscreen-toggle" type="button" aria-label="Vollbild umschalten" title="Vollbild">⛶</button>
+    </div>
     
     <!-- Phaser 3 from CDN -->
     <script src="https://cdn.jsdelivr.net/npm/phaser@3.70.0/dist/phaser.min.js"></script>
@@ -142,9 +153,8 @@
     <script>
         (function () {
             const btn = document.getElementById('fullscreen-toggle');
-            // IMPORTANT: Fullscreen must include the toggle button, otherwise you can't exit.
-            // Therefore we fullscreen the whole document (not just #game-container).
-            const fullscreenTarget = document.documentElement;
+            // Fullscreen the app shell so the toggle stays visible in fullscreen.
+            const fullscreenTarget = document.getElementById('app-shell') || document.documentElement;
 
             const fsElement = () =>
                 document.fullscreenElement ||
