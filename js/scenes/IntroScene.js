@@ -86,12 +86,51 @@ class IntroScene extends Phaser.Scene {
 
             // Start intro music on user gesture (mobile-safe)
             if (!this.introMusic) {
-                this.introMusic = this.sound.add('intro_music', { loop: true, volume: 0.7 });
+                // Play once (no loop). If loading takes longer than the track, it will just end naturally.
+                this.introMusic = this.sound.add('intro_music', { loop: false, volume: 0.7 });
             }
-            if (!this.introMusic.isPlaying) this.introMusic.play();
+            if (!this.introMusic.isPlaying) {
+                this.introMusic.stop();
+                this.introMusic.setVolume(0.7);
+                this.introMusic.play();
+            }
 
             // Queue game assets here so the intro image stays visible while loading
             this.queueGameAssetsIfNeeded();
+
+            // We want: after pressing START, keep the intro visible for at least 5 seconds,
+            // while the music plays once. Then transition when ALL are true:
+            // (loaded + 5s elapsed + audio finished)
+            const startedAt = this.time.now;
+            let minTimeElapsed = false;
+            let loadDone = false;
+            let audioDone = false;
+
+            const tryProceed = () => {
+                if (!minTimeElapsed || !loadDone || !audioDone) return;
+
+                this.cameras.main.fadeOut(250, 0, 0, 0);
+                this.time.delayedCall(250, () => this.scene.start('OpponentSelectScene'));
+            };
+
+            // Minimum 5 seconds from START click (not from load-complete)
+            this.time.delayedCall(5000, () => {
+                minTimeElapsed = true;
+                tryProceed();
+            });
+
+            // Wait for the audio to finish (play once, no cut-off)
+            if (this.introMusic) {
+                // Ensure we don't register multiple listeners across restarts
+                this.introMusic.off('complete');
+                this.introMusic.once('complete', () => {
+                    audioDone = true;
+                    tryProceed();
+                });
+            } else {
+                // If audio failed to load for any reason, don't block the flow
+                audioDone = true;
+            }
 
             this.load.on('progress', (p) => {
                 barFill.width = Math.floor(barW * p);
@@ -99,21 +138,13 @@ class IntroScene extends Phaser.Scene {
             });
 
             this.load.once('complete', () => {
-                // Fade out music quickly, then move on
-                if (this.introMusic) {
-                    this.tweens.add({
-                        targets: this.introMusic,
-                        volume: 0,
-                        duration: 300,
-                        onComplete: () => {
-                            this.introMusic.stop();
-                            this.introMusic.setVolume(0.7);
-                        }
-                    });
-                }
-
-                this.cameras.main.fadeOut(250, 0, 0, 0);
-                this.time.delayedCall(250, () => this.scene.start('OpponentSelectScene'));
+                loadingText.setText('READY');
+                loadDone = true;
+                // In case loading took longer than 5s, proceed immediately.
+                // Otherwise wait until the 5s timer fires.
+                const elapsed = this.time.now - startedAt;
+                if (elapsed >= 5000) minTimeElapsed = true;
+                tryProceed();
             });
 
             // Start the loader (we are in create(), so we need to start manually)
