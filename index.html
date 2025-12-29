@@ -70,15 +70,25 @@
             border: 2px solid rgba(255, 255, 255, 0.55);
             background: rgba(0, 0, 0, 0.55);
             color: #fff;
-            font-size: 28px;
-            font-family: Arial, sans-serif;
-            line-height: 1;
+            padding: 0;
+            line-height: 0;
             display: flex;
             align-items: center;
             justify-content: center;
             -webkit-tap-highlight-color: transparent;
             user-select: none;
             cursor: pointer;
+        }
+
+        #fullscreen-toggle svg {
+            width: 26px;
+            height: 26px;
+            display: block;
+            fill: none;
+            stroke: rgba(255, 255, 255, 0.95);
+            stroke-width: 2.2;
+            stroke-linecap: round;
+            stroke-linejoin: round;
         }
 
         #fullscreen-toggle:active {
@@ -135,7 +145,7 @@
     
     <div id="app-shell">
         <div id="game-container"></div>
-        <button id="fullscreen-toggle" type="button" aria-label="Vollbild umschalten" title="Vollbild">⛶</button>
+        <button id="fullscreen-toggle" type="button" aria-label="Vollbild umschalten" title="Vollbild"></button>
     </div>
     
     <!-- Phaser 3 from CDN -->
@@ -164,7 +174,10 @@
 
             const setIcon = () => {
                 const isFs = !!fsElement();
-                btn.textContent = isFs ? '⤢' : '⛶';
+                // Use SVG icons so mobile fonts don't render weird overlapping glyphs.
+                btn.innerHTML = isFs
+                    ? '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 3H5a2 2 0 0 0-2 2v4"/><path d="M15 3h4a2 2 0 0 1 2 2v4"/><path d="M9 21H5a2 2 0 0 1-2-2v-4"/><path d="M15 21h4a2 2 0 0 0 2-2v-4"/></svg>'
+                    : '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 3H5a2 2 0 0 0-2 2v3"/><path d="M16 3h3a2 2 0 0 1 2 2v3"/><path d="M8 21H5a2 2 0 0 1-2-2v-3"/><path d="M16 21h3a2 2 0 0 0 2-2v-3"/><path d="M8 3v4H4"/><path d="M16 3v4h4"/><path d="M8 21v-4H4"/><path d="M16 21v-4h4"/></svg>';
                 btn.title = isFs ? 'Vollbild beenden' : 'Vollbild';
             };
 
