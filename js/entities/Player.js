@@ -25,6 +25,12 @@ class Player {
         this.isMoving = false;
         this.moveDirection = 0; // -1 = left, 1 = right, 0 = stop
 
+        // Jump (simple tween jump for mobile)
+        this.isJumping = false;
+        this.jumpHeight = 220;
+        this.jumpDuration = 260;
+        this.groundSpriteY = null;
+
         // Create sprite (use first idle frame)
         this.sprite = scene.physics.add.sprite(x, y, 'monk_idle_1');
         this.sprite.setScale(2.0);
@@ -32,6 +38,7 @@ class Player {
         // Anchor to feet and lift slightly so he stands higher in the frame
         this.sprite.setOrigin(0.5, 1);
         this.sprite.y = y - 30;
+        this.groundSpriteY = this.sprite.y;
         this.sprite.setCollideWorldBounds(true);
 
         // Keep a constant *uniform* scale so frames never "stretch" due to different aspect ratios
@@ -47,6 +54,32 @@ class Player {
 
         // Play idle animation
         this.sprite.play('monk_idle_anim');
+    }
+
+    jump() {
+        if (this.controlsLocked) return;
+        if (this.hp <= 0 || this.isDead || this.isCelebrating) return;
+        if (this.isJumping) return;
+
+        this.isJumping = true;
+        this.isMoving = false;
+        this.moveDirection = 0;
+
+        this.groundSpriteY = this.groundSpriteY ?? this.sprite.y;
+        this.sprite.setVelocity?.(0, 0);
+
+        this.scene.tweens.add({
+            targets: this.sprite,
+            y: this.groundSpriteY - this.jumpHeight,
+            duration: this.jumpDuration,
+            ease: 'Quad.out',
+            yoyo: true,
+            hold: 40,
+            onComplete: () => {
+                this.sprite.y = this.groundSpriteY;
+                this.isJumping = false;
+            }
+        });
     }
 
     lockDisplaySize() {
@@ -412,7 +445,7 @@ class Player {
 
     update() {
         // Movement
-        if (this.isMoving && !this.isAttacking && this.hp > 0 && !this.isDead && !this.isCelebrating) {
+        if (this.isMoving && !this.isAttacking && this.hp > 0 && !this.isDead && !this.isCelebrating && !this.isJumping) {
             this.sprite.x += this.moveDirection * this.movementSpeed;
             
             // Keep in bounds

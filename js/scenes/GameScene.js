@@ -446,6 +446,7 @@ class GameScene extends Phaser.Scene {
         // Movement Controls (Left side)
         const leftBtn = this.createButton(padding + buttonSize, height - safeBottom - padding - buttonSize, '◄', 0x444444, buttonSize / 2);
         const rightBtn = this.createButton(padding + buttonSize * 2.5, height - safeBottom - padding - buttonSize, '►', 0x444444, buttonSize / 2);
+        const jumpBtn = this.createButton(padding + buttonSize * 1.75, height - safeBottom - padding - buttonSize * 2.1, '↑', 0x44aaff, buttonSize / 2);
 
         // Attack Controls (Right side)
         const punchBtn = this.createButton(width - padding - buttonSize * 2.5, height - safeBottom - padding - buttonSize, 'P', 0xff4444, buttonSize / 2);
@@ -487,12 +488,14 @@ class GameScene extends Phaser.Scene {
 
         punchBtn.on('pointerdown', () => this.player.punch());
         kickBtn.on('pointerdown', () => this.player.kick());
+        jumpBtn.on('pointerdown', () => this.player.jump?.());
 
         // Keyboard controls (for desktop testing)
         this.cursors = this.input.keyboard.createCursorKeys();
         this.keys = {
             punch: this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.A),
-            kick: this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.S)
+            kick: this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.S),
+            jump: this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.SPACE)
         };
     }
 
@@ -546,6 +549,9 @@ class GameScene extends Phaser.Scene {
             }
             if (Phaser.Input.Keyboard.JustDown(this.keys.kick)) {
                 this.player.kick();
+            }
+            if (this.keys.jump && Phaser.Input.Keyboard.JustDown(this.keys.jump)) {
+                this.player.jump?.();
             }
         }
 
