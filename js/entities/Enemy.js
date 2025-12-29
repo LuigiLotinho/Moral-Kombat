@@ -124,6 +124,12 @@ class Enemy {
         } else if (this.attackCooldown <= 0) {
             this.attack(player);
         }
+
+        // Keep enemy inside center play area (so it never enters the black UI zones)
+        const { width } = this.scene.cameras.main;
+        const xMin = this.scene.playArea?.xMin ?? 0;
+        const xMax = this.scene.playArea?.xMax ?? width;
+        this.sprite.x = Phaser.Math.Clamp(this.sprite.x, xMin + 120, xMax - 120);
     }
 
     attack(player) {

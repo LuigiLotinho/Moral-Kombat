@@ -21,6 +21,10 @@ class Player {
         this.comboInputs = []; // [{ type: 'P'|'K', t: number }]
         // Input buffering so super-fast Punch->Kick still triggers
         this.pendingKick = false;
+        // Jump
+        this.isJumping = false;
+        this.jumpHeight = 220;
+        this.jumpDuration = 260;
         this.movementSpeed = 5;
         this.isMoving = false;
         this.moveDirection = 0; // -1 = left, 1 = right, 0 = stop
@@ -32,6 +36,7 @@ class Player {
         // Anchor to feet and lift slightly so he stands higher in the frame
         this.sprite.setOrigin(0.5, 1);
         this.sprite.y = y - 30;
+        this.groundSpriteY = this.sprite.y;
         this.sprite.setCollideWorldBounds(true);
 
         // Keep a constant *uniform* scale so frames never "stretch" due to different aspect ratios
@@ -55,6 +60,36 @@ class Player {
         const bookFactor = this.isCastingBook ? this.bookScaleFactor : 1;
         const factor = celebrateFactor * bookFactor;
         this.sprite.setScale(this.baseScale * factor);
+    }
+
+    jump() {
+        if (this.controlsLocked) return;
+        if (this.hp <= 0 || this.isDead || this.isCelebrating) return;
+        if (this.isJumping) return;
+
+        this.isJumping = true;
+        this.isMoving = false;
+        this.moveDirection = 0;
+
+        // Make sure we always return to the same baseline
+        this.groundSpriteY = this.groundSpriteY ?? this.sprite.y;
+        this.sprite.setVelocity?.(0, 0);
+
+        this.scene.tweens.add({
+            targets: this.sprite,
+            y: this.groundSpriteY - this.jumpHeight,
+            duration: this.jumpDuration,
+            ease: 'Quad.out',
+            yoyo: true,
+            hold: 40,
+            onYoyo: () => {
+                // fall back down
+            },
+            onComplete: () => {
+                this.sprite.y = this.groundSpriteY;
+                this.isJumping = false;
+            }
+        });
     }
 
     lockVictoryPosition() {
@@ -417,7 +452,9 @@ class Player {
             
             // Keep in bounds
             const { width } = this.scene.cameras.main;
-            this.sprite.x = Phaser.Math.Clamp(this.sprite.x, 100, width - 100);
+            const xMin = this.scene.playArea?.xMin ?? 0;
+            const xMax = this.scene.playArea?.xMax ?? width;
+            this.sprite.x = Phaser.Math.Clamp(this.sprite.x, xMin + 80, xMax - 80);
         }
 
         // Play idle if not attacking and not dead

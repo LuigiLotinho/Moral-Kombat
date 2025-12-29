@@ -313,17 +313,45 @@ class GameScene extends Phaser.Scene {
         const bgScale = Math.max(width / bg.width, height / bg.height);
         bg.setScale(bgScale);
 
+        // Define a centered play area with left/right UI zones (mobile layout)
+        // Controls live in the side zones so they don't cover the fight.
+        this.uiZoneWidth = Phaser.Math.Clamp(Math.round(width * 0.22), 320, 520);
+        this.playArea = {
+            xMin: this.uiZoneWidth,
+            xMax: width - this.uiZoneWidth
+        };
+
+        // --- Mobile layout: gameplay in center, black side panels for controls ---
+        // We keep a single camera (simpler + avoids double-rendering issues like "two books").
+        // Black panels visually separate the UI zones from gameplay.
+        this.leftPanel = this.add
+            .rectangle(this.uiZoneWidth / 2, height / 2, this.uiZoneWidth, height, 0x000000, 1)
+            .setScrollFactor(0)
+            .setDepth(900);
+        this.rightPanel = this.add
+            .rectangle(width - this.uiZoneWidth / 2, height / 2, this.uiZoneWidth, height, 0x000000, 1)
+            .setScrollFactor(0)
+            .setDepth(900);
+        this.dividerL = this.add
+            .rectangle(this.playArea.xMin, height / 2, 3, height, 0x222222, 1)
+            .setScrollFactor(0)
+            .setDepth(901);
+        this.dividerR = this.add
+            .rectangle(this.playArea.xMax, height / 2, 3, height, 0x222222, 1)
+            .setScrollFactor(0)
+            .setDepth(901);
+
         // Ground line (invisible, for positioning)
         this.groundY = height - 200;
 
         // Create Player
-        this.player = new Player(this, 400, this.groundY);
+        this.player = new Player(this, this.playArea.xMin + 220, this.groundY);
 
         // Create Enemy
         if (this.opponentKey === 'madame') {
-            this.enemy = new MadameEnemy(this, width - 500, this.groundY);
+            this.enemy = new MadameEnemy(this, this.playArea.xMax - 220, this.groundY);
         } else {
-            this.enemy = new Enemy(this, width - 500, this.groundY);
+            this.enemy = new Enemy(this, this.playArea.xMax - 220, this.groundY);
         }
 
         // Ensure render order: player in front of enemy
@@ -405,32 +433,45 @@ class GameScene extends Phaser.Scene {
 
     createHealthBars() {
         const { width } = this.cameras.main;
+        const xMin = this.playArea?.xMin ?? 0;
+        const xMax = this.playArea?.xMax ?? width;
         const barWidth = 400;
         const barHeight = 40;
         const barY = 50;
 
+        this.hudObjects = [];
+
         // Player HP (left side)
-        this.add.text(50, barY - 30, 'SRI AUROBINDO', {
+        const playerLabel = this.add.text(xMin + 20, barY - 30, 'SRI AUROBINDO', {
             fontSize: '24px',
             fontFamily: 'Arial',
             color: '#ffffff',
             fontStyle: 'bold'
         });
 
-        this.playerHpBg = this.add.rectangle(50, barY, barWidth, barHeight, 0x333333).setOrigin(0, 0);
-        this.playerHpBar = this.add.rectangle(50, barY, barWidth, barHeight, 0x00ff00).setOrigin(0, 0);
+        this.playerHpBg = this.add.rectangle(xMin + 20, barY, barWidth, barHeight, 0x333333).setOrigin(0, 0);
+        this.playerHpBar = this.add.rectangle(xMin + 20, barY, barWidth, barHeight, 0x00ff00).setOrigin(0, 0);
 
         // Enemy HP (right side)
         const enemyLabel = this.opponentKey === 'madame' ? 'THE MADAME' : 'JCB';
-        this.add.text(width - 450, barY - 30, enemyLabel, {
+        const enemyLabelText = this.add.text(xMax - 20 - barWidth, barY - 30, enemyLabel, {
             fontSize: '24px',
             fontFamily: 'Arial',
             color: '#ffffff',
             fontStyle: 'bold'
         });
 
-        this.enemyHpBg = this.add.rectangle(width - 450, barY, barWidth, barHeight, 0x333333).setOrigin(0, 0);
-        this.enemyHpBar = this.add.rectangle(width - 450, barY, barWidth, barHeight, 0xff0000).setOrigin(0, 0);
+        this.enemyHpBg = this.add.rectangle(xMax - 20 - barWidth, barY, barWidth, barHeight, 0x333333).setOrigin(0, 0);
+        this.enemyHpBar = this.add.rectangle(xMax - 20 - barWidth, barY, barWidth, barHeight, 0xff0000).setOrigin(0, 0);
+
+        this.hudObjects.push(
+            playerLabel,
+            enemyLabelText,
+            this.playerHpBg,
+            this.playerHpBar,
+            this.enemyHpBg,
+            this.enemyHpBar
+        );
     }
 
     createTouchControls() {
@@ -439,18 +480,31 @@ class GameScene extends Phaser.Scene {
         const padding = 40;
         // Keep buttons reachable on phones (browser bar / safe-area)
         const safeBottom = 80;
+        const uiZoneWidth = this.uiZoneWidth ?? Phaser.Math.Clamp(Math.round(width * 0.22), 320, 520);
+        const leftZoneCenterX = Math.round(uiZoneWidth / 2);
+        const rightZoneCenterX = Math.round(width - uiZoneWidth / 2);
+        const baseY = height - safeBottom - padding - buttonSize;
 
         // Track touch movement so keyboard logic doesn't cancel it each frame
         this.touchMoveDirection = 0; // -1 left, +1 right, 0 none
 
-        // Movement Controls (Left side)
-        const leftBtn = this.createButton(padding + buttonSize, height - safeBottom - padding - buttonSize, '◄', 0x444444, buttonSize / 2);
-        const rightBtn = this.createButton(padding + buttonSize * 2.5, height - safeBottom - padding - buttonSize, '►', 0x444444, buttonSize / 2);
+        // Movement Controls (Left UI zone)
+        const leftBtn = this.createButton(leftZoneCenterX - buttonSize * 0.65, baseY, '◄', 0x444444, buttonSize / 2);
+        const rightBtn = this.createButton(leftZoneCenterX + buttonSize * 0.65, baseY, '►', 0x444444, buttonSize / 2);
+        const jumpBtn = this.createButton(leftZoneCenterX, baseY - buttonSize * 0.95, '↑', 0x44aaff, buttonSize / 2);
 
-        // Attack Controls (Right side)
-        const punchBtn = this.createButton(width - padding - buttonSize * 2.5, height - safeBottom - padding - buttonSize, 'P', 0xff4444, buttonSize / 2);
-        const kickBtn = this.createButton(width - padding - buttonSize, height - safeBottom - padding - buttonSize, 'K', 0xff8844, buttonSize / 2);
+        // Attack Controls (Right UI zone)
+        const punchBtn = this.createButton(rightZoneCenterX - buttonSize * 0.65, baseY, 'P', 0xff4444, buttonSize / 2);
+        const kickBtn = this.createButton(rightZoneCenterX + buttonSize * 0.65, baseY, 'K', 0xff8844, buttonSize / 2);
         // No special button in the new move set
+
+        // Ensure UI is always above panels
+        const uiDepth = 1000;
+        for (const btn of [leftBtn, rightBtn, jumpBtn, punchBtn, kickBtn]) {
+            if (!btn) continue;
+            btn.setDepth(uiDepth);
+            if (btn._label) btn._label.setDepth(uiDepth + 1);
+        }
 
         // Button Events (mobile-safe: stop on up/out + global up)
         leftBtn.on('pointerdown', () => {
@@ -487,13 +541,17 @@ class GameScene extends Phaser.Scene {
 
         punchBtn.on('pointerdown', () => this.player.punch());
         kickBtn.on('pointerdown', () => this.player.kick());
+        jumpBtn.on('pointerdown', () => this.player.jump());
 
         // Keyboard controls (for desktop testing)
         this.cursors = this.input.keyboard.createCursorKeys();
         this.keys = {
             punch: this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.A),
-            kick: this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.S)
+            kick: this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.S),
+            jump: this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.SPACE)
         };
+
+        // (No UI camera/layer anymore; panels + button depths handle separation)
     }
 
     createButton(x, y, text, color, radius = 60) {
@@ -507,6 +565,7 @@ class GameScene extends Phaser.Scene {
             color: '#ffffff',
             fontStyle: 'bold'
         }).setOrigin(0.5);
+        button._label = label;
 
         button.on('pointerdown', () => {
             button.setScale(0.9);
@@ -546,6 +605,9 @@ class GameScene extends Phaser.Scene {
             }
             if (Phaser.Input.Keyboard.JustDown(this.keys.kick)) {
                 this.player.kick();
+            }
+            if (Phaser.Input.Keyboard.JustDown(this.keys.jump)) {
+                this.player.jump();
             }
         }
 
@@ -594,10 +656,11 @@ class GameScene extends Phaser.Scene {
 
     showGameOverScreen(result) {
         const { width, height } = this.cameras.main;
+        const uiDepth = 2000;
 
         // Dark overlay (disable for DEFEAT so the scene stays visible)
         const overlayAlpha = result === 'DEFEAT' ? 0 : 0.8;
-        const overlay = this.add.rectangle(0, 0, width, height, 0x000000, overlayAlpha).setOrigin(0);
+        const overlay = this.add.rectangle(0, 0, width, height, 0x000000, overlayAlpha).setOrigin(0).setDepth(uiDepth);
 
         // Result text
         const resultText = this.add.text(width / 2, height / 2 - 100, result, {
@@ -605,7 +668,7 @@ class GameScene extends Phaser.Scene {
             fontFamily: 'Arial',
             color: result === 'VICTORY!' ? '#00ff00' : '#ff0000',
             fontStyle: 'bold'
-        }).setOrigin(0.5);
+        }).setOrigin(0.5).setDepth(uiDepth + 1);
 
         if (result === 'VICTORY!') {
             // Two options after victory
@@ -614,14 +677,14 @@ class GameScene extends Phaser.Scene {
                 fontFamily: 'Arial',
                 color: '#ffffff',
                 fontStyle: 'bold'
-            }).setOrigin(0.5);
+            }).setOrigin(0.5).setDepth(uiDepth + 1);
             playAgain.setInteractive({ useHandCursor: true });
 
             const chooseOther = this.add.text(width / 2, height / 2 + 160, 'PLAY OTHER LEVEL', {
                 fontSize: '40px',
                 fontFamily: 'Arial',
                 color: '#dddddd'
-            }).setOrigin(0.5);
+            }).setOrigin(0.5).setDepth(uiDepth + 1);
             chooseOther.setInteractive({ useHandCursor: true });
 
             // Blink the primary option
@@ -647,7 +710,7 @@ class GameScene extends Phaser.Scene {
                 fontSize: '48px',
                 fontFamily: 'Arial',
                 color: '#ffffff'
-            }).setOrigin(0.5);
+            }).setOrigin(0.5).setDepth(uiDepth + 1);
 
             // Blinking animation
             this.tweens.add({
