@@ -403,8 +403,20 @@ class GameScene extends Phaser.Scene {
             arenaH = Math.round(gameW / aspect);
         }
 
-        // Only show sidebars when the device is wider than the arena (per spec).
-        // If the screen is exactly 16:9, we keep the arena full-size (no artificial shrink).
+        // On touch devices we need sidebars wide enough for controls.
+        // If the device is only slightly wider than 16:9 (or exactly 16:9), we shrink the arena a bit
+        // to reserve minimum sidebars for buttons. (Arena stays 16:9 and centered.)
+        const isTouch = !!(this.sys?.game?.device?.input?.touch);
+        const sidebarW = Math.floor((gameW - arenaW) / 2);
+        const minSidebar = isTouch ? 180 : 0;
+        if (isTouch && gameW / gameH >= aspect && sidebarW < minSidebar) {
+            const candidateW = gameW - minSidebar * 2;
+            const candidateH = Math.round(candidateW / aspect);
+            if (candidateW > 900 && candidateH <= gameH) {
+                arenaW = candidateW;
+                arenaH = candidateH;
+            }
+        }
 
         const arenaX = Math.floor((gameW - arenaW) / 2);
         const arenaY = Math.floor((gameH - arenaH) / 2);
@@ -574,8 +586,23 @@ class GameScene extends Phaser.Scene {
         const padding = 24;
         const safeBottom = 64;
 
-        // If there is no room in the sidebars, don't place touch controls (keyboard still works on desktop).
-        if (leftW < 140 || rightW < 140) {
+        // Only show touch controls on touch devices.
+        const isTouch = !!(this.sys?.game?.device?.input?.touch);
+        if (!isTouch) {
+            // Bind keyboard once (desktop)
+            if (!this.cursors) {
+                this.cursors = this.input.keyboard.createCursorKeys();
+                this.keys = {
+                    punch: this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.A),
+                    kick: this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.S),
+                    jump: this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.SPACE)
+                };
+            }
+            return;
+        }
+
+        // If there is still no room in the sidebars (e.g. 4:3 tablets), show a hint.
+        if (leftW < 120 || rightW < 120) {
             if (!this._mkNoSidebarHint) {
                 const hint = this.add
                     .text(gameW / 2, gameH - 40, 'Hinweis: Touch-Buttons erscheinen nur, wenn links/rechts Platz ist (breiteres Querformat).', {
@@ -588,16 +615,6 @@ class GameScene extends Phaser.Scene {
                 this._mkNoSidebarHint = hint;
                 this.uiObjects.push(hint);
                 this.gameCam?.ignore?.([hint]);
-            }
-
-            // Still bind keyboard once
-            if (!this.cursors) {
-                this.cursors = this.input.keyboard.createCursorKeys();
-                this.keys = {
-                    punch: this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.A),
-                    kick: this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.S),
-                    jump: this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.SPACE)
-                };
             }
             return;
         }
